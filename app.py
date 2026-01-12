@@ -143,7 +143,7 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("🚆 空想鉄道シミュレータ Web版")
+st.title("空想鉄道シミュレータ Web版")
 st.markdown("空想鉄道の作品データ(JSON/txt)を読み込み、運転シミュレーションを行います。")
 
 # 1. データ入力
@@ -187,7 +187,7 @@ if uploaded_file is not None:
         st.success(f"読み込み成功: {map_title} ({len(line_dict)}路線)")
         
         # --- 設定エリア ---
-        st.subheader("⚙️ 運転設定")
+        st.subheader("運転設定")
         
         col1, col2 = st.columns(2)
         
@@ -255,7 +255,7 @@ if uploaded_file is not None:
                 selected_stops.sort(key=lambda x: x['idx'])
 
                 st.divider()
-                st.subheader(f"🏁 {selected_line_name} ({train_type})")
+                st.subheader(f"{selected_line_name} ({train_type})")
                 st.write(f"車両: {vehicle_name.split('(')[0]} / 停車駅数: {len(selected_stops)}")
 
                 results = []
