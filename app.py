@@ -5,8 +5,8 @@ import pandas as pd
 import math
 import re
 import networkx as nx
-import folium
 from streamlit_folium import st_folium
+import folium
 from io import BytesIO
 
 # ==========================================
@@ -107,12 +107,16 @@ def resample_and_analyze(points, spec, interval=25.0):
     lons = np.interp(new_dists, cum_dist, [p[1] for p in points])
     
     track = []
-    w = 3 
+    w = 3 # 計算に使用する前後の点の幅
+    
     for i in range(len(new_dists)):
+        # 【修正】端点付近(i < w)や終点付近(i >= len - w)はカーブ計算できないので直線(9999)とする
+        # 以前のコードはここのif/elseが逆になっており、範囲外アクセス(IndexError)を起こしていました。
         if i < w or i >= len(new_dists) - w:
-            R = calculate_radius((lats[i-w], lons[i-w]), (lats[i], lons[i]), (lats[i+w], lons[i+w]))
-        else:
             R = 9999.0
+        else:
+            # 中間地点のみ計算を実行
+            R = calculate_radius((lats[i-w], lons[i-w]), (lats[i], lons[i]), (lats[i+w], lons[i+w]))
         
         limit = spec['curve_factor'] * math.sqrt(R)
         limit = max(25.0, min(spec['max_speed'], limit))
@@ -231,7 +235,6 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
     if not route_points_list:
         return None
     
-    # 中心の決定（全点の平均）
     all_lats = []
     all_lons = []
     for segment in route_points_list:
@@ -239,12 +242,13 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
             all_lats.append(p[0])
             all_lons.append(p[1])
             
+    if not all_lats: return None
+            
     center_lat = sum(all_lats) / len(all_lats)
     center_lon = sum(all_lons) / len(all_lons)
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
     
-    # 線路の描画
     for segment in route_points_list:
         folium.PolyLine(
             locations=segment,
@@ -253,8 +257,6 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
             opacity=0.7
         ).add_to(m)
         
-    # 駅マーカーの描画
-    # start: 緑, end: 赤, via: オレンジ, others: 小さい青円
     for node in route_nodes:
         coord = station_coords.get(node)
         if not coord: continue
@@ -272,7 +274,6 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
             icon_color = "orange"
             icon_type = "flag"
         else:
-            # 中間駅は小さい円マーカー
             folium.CircleMarker(
                 location=coord,
                 radius=4,
@@ -283,7 +284,6 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
             ).add_to(m)
             continue
 
-        # 主要駅はアイコン付きマーカー
         folium.Marker(
             location=coord,
             popup=node,
@@ -456,10 +456,9 @@ if raw_text:
                 else:
                     full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
                 
-                # 経路情報の復元と地図用データの収集
                 actual_dist = 0
                 used_lines_set = set()
-                map_geometry_list = [] # 地図用: 各区間の点群リストのリスト
+                map_geometry_list = []
                 
                 for i in range(len(full_route_nodes)-1):
                     u = full_route_nodes[i]
@@ -483,7 +482,6 @@ if raw_text:
                         used_lines_set.add(best_line)
                         actual_dist += candidates[best_line]['weight']
                         
-                        # 地図用の座標処理
                         pts = candidates[best_line]['points']
                         u_coord = station_coords[u]
                         d_start = hubeny_distance(pts[0][0], pts[0][1], u_coord[0], u_coord[1])
@@ -497,7 +495,6 @@ if raw_text:
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
                 st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
 
-                # --- 地図表示 ---
                 st.markdown("#### ルートマップ")
                 map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
                 st_folium(map_obj, height=300, width="100%")
@@ -509,7 +506,6 @@ if raw_text:
                 st.error(f"エラー: {e}")
                 st.stop()
 
-            # 停車駅設定
             st.markdown("#### 停車パターン")
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("全選択"):
