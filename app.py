@@ -128,6 +128,9 @@ def build_network(map_data):
     station_id_map = {} 
     station_coords = {}
     all_line_names = set()
+    
+    # 路線ごとの駅リスト（UI用）
+    line_stations_dict = {}
 
     # 駅ID解決
     for line_idx, line in enumerate(lines):
@@ -138,14 +141,11 @@ def build_network(map_data):
         raw_points = line.get('point', [])
         
         for pt_idx, p in enumerate(raw_points):
-            # p[2] == 's' で駅判定。要素数が3以上あればチェック可能
             if len(p) >= 3 and p[2] == 's':
                 
-                # 駅名取得ロジック (空文字や欠損に対応)
                 if len(p) >= 4 and str(p[3]).strip():
                     raw_name = str(p[3])
                 else:
-                    # 駅名がない場合は仮名を付与
                     raw_name = f"未設定駅({line_idx}-{pt_idx})"
 
                 lat, lon = p[0], p[1]
@@ -179,20 +179,26 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
-    # グラフエッジ構築
+    # グラフエッジ構築 & UI用リスト作成
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
         raw_points = line.get('point', [])
         
-        line_stations = []
+        line_stations = [] # この路線の駅一覧(ID)
+        
         for i, p in enumerate(raw_points):
             if (line_idx, i) in station_id_map:
+                st_id = station_id_map[(line_idx, i)]
                 line_stations.append({
-                    'id': station_id_map[(line_idx, i)],
+                    'id': st_id,
                     'raw_idx': i
                 })
         
+        # UI用に保存 (駅名リストとして)
+        line_stations_dict[line_name] = [s['id'] for s in line_stations]
+        
+        # ネットワーク接続
         for i in range(len(line_stations) - 1):
             st1 = line_stations[i]
             st2 = line_stations[i+1]
@@ -220,7 +226,7 @@ def build_network(map_data):
                 'line_name': line_name
             }
 
-    return G, edge_details, station_coords, sorted(list(all_line_names))
+    return G, edge_details, station_coords, sorted(list(all_line_names)), line_stations_dict
 
 # ==========================================
 # シミュレーションクラス
@@ -330,7 +336,7 @@ if raw_text:
         map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
         
         # ネットワーク構築
-        G, edge_details, station_coords, all_line_names = build_network(map_data)
+        G, edge_details, station_coords, all_line_names, line_stations_dict = build_network(map_data)
         all_stations_list = sorted(list(G.nodes()))
         
         st.success(f"解析完了: {len(all_stations_list)}駅 / {len(all_line_names)}路線")
@@ -342,20 +348,37 @@ if raw_text:
         
         with col1:
             st.markdown("#### ルート選択")
-            dept_st = st.selectbox("出発駅", all_stations_list, index=0)
+            
+            # 出発駅：路線 -> 駅
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                dept_line = st.selectbox("出発路線", all_line_names, key="d_line")
+            with col_d2:
+                dept_st = st.selectbox("出発駅", line_stations_dict[dept_line], key="d_st")
             
             # 優先・回避設定
             with st.expander("路線ごとの優先度設定", expanded=False):
                 avoid_lines = st.multiselect("避ける (コスト増)", all_line_names)
                 prioritize_lines = st.multiselect("優先する (コスト減)", all_line_names)
 
-            dest_st = st.selectbox("到着駅", all_stations_list, index=len(all_stations_list)-1)
+            # 到着駅：路線 -> 駅
+            col_a1, col_a2 = st.columns(2)
+            with col_a1:
+                dest_line = st.selectbox("到着路線", all_line_names, key="a_line", index=len(all_line_names)-1)
+            with col_a2:
+                dest_st = st.selectbox("到着駅", line_stations_dict[dest_line], key="a_st", index=len(line_stations_dict[dest_line])-1)
             
             # 経由地オプション
             use_via = st.checkbox("経由駅を指定", value=False)
             via_st = None
             if use_via:
-                via_st = st.selectbox("経由駅", all_stations_list, index=min(10, len(all_stations_list)-1))
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    via_line = st.selectbox("経由路線", all_line_names, key="v_line")
+                with col_v2:
+                    # 経由駅は中間あたりの駅をデフォルトに
+                    v_stats = line_stations_dict[via_line]
+                    via_st = st.selectbox("経由駅", v_stats, key="v_st", index=min(len(v_stats)//2, len(v_stats)-1))
 
             # --- 経路計算 ---
             try:
@@ -444,6 +467,7 @@ if raw_text:
             spec = VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
             
+            # 初期値を「普通」に変更
             train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
