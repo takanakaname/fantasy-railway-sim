@@ -10,7 +10,7 @@ from io import BytesIO
 # ==========================================
 # 設定・定数
 # ==========================================
-st.set_page_config(page_title="空想鉄道シミュレータ", layout="wide")
+st.set_page_config(page_title="空想鉄道シミュレータ (完全版)", layout="wide")
 
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
@@ -97,7 +97,7 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック
+# ネットワーク解析ロジック (スマート結合)
 # ==========================================
 def build_network(map_data):
     G = nx.Graph()
@@ -107,6 +107,7 @@ def build_network(map_data):
     station_id_map = {} 
     station_coords = {}
 
+    # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
@@ -146,6 +147,7 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
+    # グラフエッジ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
@@ -174,6 +176,7 @@ def build_network(map_data):
                 dist += hubeny_distance(segment_points[k][0], segment_points[k][1],
                                       segment_points[k+1][0], segment_points[k+1][1])
             
+            # エッジ追加 (MultiGraphにはせず単純化。上書き)
             G.add_edge(u, v, weight=dist)
             key = tuple(sorted((u, v)))
             edge_details[key] = {
@@ -207,7 +210,7 @@ class TrainSim:
         t, x, v = 0.0, 0.0, 0.0
         curr = 0
         total = self.track[-1]['dist']
-        while x < total and t < 3600*5: 
+        while x < total and t < 3600*10: # 長距離用に制限緩和
             while curr < len(self.track)-1 and self.track[curr+1]['dist'] < x:
                 curr += 1
             node = self.track[curr]
@@ -237,32 +240,16 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("🚆 空想鉄道シミュレータ")
-st.markdown("空想別館などの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
+st.title("🚆 空想鉄道シミュレータ (完全版)")
+st.markdown("直通運転・経由地指定・所要時間計算に対応した完全版シミュレータです。")
 
 # --- ブックマークレット解説 ---
 with st.expander("📲 【便利機能】作品データの自動取得ブックマークレット (導入方法はこちら)"):
     st.markdown("""
     ブラウザのブックマーク機能を使って、空想別館のページからワンクリックでデータを取得できます。
-    PCの方は以下の手順で登録してください。
     """)
-    
     bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
-    
     st.code(bookmarklet_code, language="javascript")
-    
-    st.markdown("""
-    **【登録手順】**
-    1. ブラウザのブックマークバーなどで「右クリック」→「ページを追加」を選択。
-    2. 名前を「**空想データ取得**」など分かりやすい名前にする。
-    3. URLの欄に、**上の黒いボックス内のコードをすべてコピーして貼り付ける**。
-    4. 保存する。
-    
-    **【使い方】**
-    1. 空想鉄道（空想別館）の作品ページを開く。
-    2. 登録したブックマークをクリックする。
-    3. 「成功」と出たら、このページの入力欄に **Ctrl+V (貼り付け)** する。
-    """)
 
 # --- データ入力 ---
 raw_text = st.text_area(
@@ -286,121 +273,181 @@ if raw_text:
             
         map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
         
-        # ネットワーク構築 (スマート結合)
+        # ネットワーク構築
         G, edge_details, station_coords = build_network(map_data)
-        
-        # 全駅リスト（ソート済み）
         all_stations_list = sorted(list(G.nodes()))
         
-        st.success(f"ネットワーク構築完了: {len(all_stations_list)}駅 (距離判定閾値: {int(SAME_STATION_THRESHOLD)}m)")
+        st.success(f"ネットワーク構築完了: {len(all_stations_list)}駅 / {len(G.edges())}区間")
         
-        # --- 運転設定 ---
-        st.subheader("⚙️ 運転プラン")
+        # --- 運転プラン ---
+        st.subheader("⚙️ 運転プラン設定")
         
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # 出発・到着駅の選択
+            # 駅選択エリア
+            st.write("▼ ルート選択")
             dept_st = st.selectbox("出発駅", all_stations_list, index=0)
+            
+            # 経由地オプション
+            use_via = st.checkbox("経由駅を指定する (遠回りする場合など)", value=False)
+            via_st = None
+            if use_via:
+                via_st = st.selectbox("経由駅", all_stations_list, index=min(10, len(all_stations_list)-1))
+            
             dest_st = st.selectbox("到着駅", all_stations_list, index=len(all_stations_list)-1)
             
-            # 経路計算
+            # 経路計算ロジック
             try:
-                route_stations = nx.shortest_path(G, source=dept_st, target=dest_st, weight='weight')
-                st.info(f"経路: {' → '.join(route_stations[:5])} ... ({len(route_stations)}駅)")
+                full_route_nodes = []
+                if use_via and via_st:
+                    # 出発 -> 経由
+                    path1 = nx.shortest_path(G, source=dept_st, target=via_st, weight='weight')
+                    # 経由 -> 到着
+                    path2 = nx.shortest_path(G, source=via_st, target=dest_st, weight='weight')
+                    # 結合 (経由駅が重複するので片方除く)
+                    full_route_nodes = path1 + path2[1:]
+                else:
+                    # 直行
+                    full_route_nodes = nx.shortest_path(G, source=dept_st, target=dest_st, weight='weight')
+                
+                # 距離概算
+                approx_dist = 0
+                for i in range(len(full_route_nodes)-1):
+                    key = tuple(sorted((full_route_nodes[i], full_route_nodes[i+1])))
+                    if key in G.edges():
+                        approx_dist += G.edges()[key]['weight']
+                
+                st.info(f"ルート確定: {len(full_route_nodes)}駅 (約{approx_dist/1000:.1f}km)")
+                with st.expander("経由する駅一覧を見る"):
+                    st.write(" → ".join(full_route_nodes))
+
             except nx.NetworkXNoPath:
-                st.error("経路が見つかりませんでした。線路が繋がっていません。")
+                st.error("経路が見つかりません。線路がつながっていない可能性があります。")
                 st.stop()
-            except Exception:
-                st.error("出発駅と到着駅を選択してください。")
+            except Exception as e:
+                st.error(f"エラー: {e}")
                 st.stop()
 
-            # トグル式停車設定
+            # 停車駅設定 (インデックスベースで管理してループや往復に対応)
             st.write("▼ 停車パターン設定")
             btn_col1, btn_col2 = st.columns(2)
+            
+            # セッションステート管理用のキー接頭辞（ルートが変わるたびにリセットしたいが簡易的にmapId等で管理）
+            # ここではシンプルに毎回全書き換え
+            
             if btn_col1.button("全選択"):
-                for s in route_stations: st.session_state[f"chk_thru_{s}"] = True
+                for i, s in enumerate(full_route_nodes):
+                    st.session_state[f"chk_r_{i}_{s}"] = True
             if btn_col2.button("全解除"):
-                for s in route_stations: st.session_state[f"chk_thru_{s}"] = False
+                for i, s in enumerate(full_route_nodes):
+                    st.session_state[f"chk_r_{i}_{s}"] = False
 
             with st.container(height=300):
-                selected_names = []
-                for s in route_stations:
-                    key = f"chk_thru_{s}"
-                    if key not in st.session_state: st.session_state[key] = True
-                    if st.checkbox(s, key=key):
-                        selected_names.append(s)
+                selected_indices = []
+                for i, s_name in enumerate(full_route_nodes):
+                    key = f"chk_r_{i}_{s_name}"
+                    # デフォルトON
+                    if key not in st.session_state:
+                        st.session_state[key] = True
+                    
+                    # チェックボックス表示 (同じ駅名が複数回出ることもあるのでインデックスを表示に含めると親切かも)
+                    label = f"{i+1}. {s_name}"
+                    if st.checkbox(label, key=key):
+                        selected_indices.append(i)
+                        
+            # 始発と終点は強制的に選択リストに加えるためのロジックは実行時に行う
 
         with col2:
+            st.write("▼ 車両・種別")
             vehicle_name = st.selectbox("使用車両", list(VEHICLE_DB.keys()))
             spec = VEHICLE_DB[vehicle_name]
-            st.caption(f"{spec['desc']}")
-            train_type = st.text_input("種別名", value="直通特急")
+            st.info(f"性能: 最高{spec['max_speed']}km/h 加速{spec['acc']}km/h/s\n解説: {spec['desc']}")
+            
+            train_type = st.text_input("種別名", value="臨時特急")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
         # --- 実行 ---
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
-            if len(selected_names) < 2:
-                st.error("停車駅不足です")
+            # 選択されたインデックスリストを整理
+            # 始発(0)と終点(last)が含まれていなければ強制追加
+            if 0 not in selected_indices: selected_indices.append(0)
+            last_idx = len(full_route_nodes) - 1
+            if last_idx not in selected_indices: selected_indices.append(last_idx)
+            
+            selected_indices.sort()
+            
+            if len(selected_indices) < 2:
+                st.error("停車駅が足りません")
             else:
-                final_stops = [s for s in route_stations if s in selected_names]
-                if route_stations[0] not in final_stops: final_stops.insert(0, route_stations[0])
-                if route_stations[-1] not in final_stops: final_stops.append(route_stations[-1])
-                
-                # 重複排除・順序維持
-                seen = set()
-                final_stops_ordered = []
-                for x in route_stations:
-                    if x in final_stops and x not in seen:
-                        final_stops_ordered.append(x)
-                        seen.add(x)
-                final_stops = final_stops_ordered
-
                 st.divider()
-                st.subheader(f"🏁 {dept_st} 発 {dest_st} 行 ({train_type})")
+                via_text = f"(経由: {via_st})" if use_via and via_st else ""
+                st.subheader(f"🏁 {dept_st} 発 {dest_st} 行 {via_text}")
+                st.write(f"種別: {train_type} / 車両: {vehicle_name.split('(')[0]}")
                 
                 results = []
                 progress_bar = st.progress(0)
                 
-                for i in range(len(final_stops) - 1):
-                    progress_bar.progress((i+1)/(len(final_stops)-1))
+                # 停車駅間ごとのループ
+                # selected_indices = [0, 5, 10...] (route_nodes内のインデックス)
+                for i in range(len(selected_indices) - 1):
+                    progress_bar.progress((i+1)/(len(selected_indices)-1))
                     
-                    s_start = final_stops[i]
-                    s_end = final_stops[i+1]
+                    idx_start = selected_indices[i]
+                    idx_end = selected_indices[i+1]
                     
-                    sub_path = nx.shortest_path(G, s_start, s_end, weight='weight')
+                    s_name_start = full_route_nodes[idx_start]
+                    s_name_end = full_route_nodes[idx_end]
+                    
+                    # 経路ノードの切り出し (ここが重要: 計算済みのルートをそのままなぞる)
+                    segment_nodes = full_route_nodes[idx_start : idx_end + 1]
+                    
+                    # 座標結合
                     combined_points = []
-                    
-                    for k in range(len(sub_path)-1):
-                        u, v = sub_path[k], sub_path[k+1]
+                    for k in range(len(segment_nodes) - 1):
+                        u = segment_nodes[k]
+                        v = segment_nodes[k+1]
+                        
                         key = tuple(sorted((u, v)))
-                        details = edge_details[key]
+                        details = edge_details.get(key)
+                        
+                        if not details: continue # エラー回避
+                        
                         pts = details['points']
                         
                         # 向き判定
+                        # u (始点側) の座標を取得
                         u_coord = station_coords[u]
+                        
+                        # ptsの始点と終点、どちらが u に近いか
                         d_start = hubeny_distance(pts[0][0], pts[0][1], u_coord[0], u_coord[1])
                         d_end = hubeny_distance(pts[-1][0], pts[-1][1], u_coord[0], u_coord[1])
                         
-                        if d_end < d_start: pts = pts[::-1]
+                        if d_end < d_start:
+                            pts = pts[::-1]
                         
-                        if combined_points: combined_points.extend(pts[1:])
-                        else: combined_points.extend(pts)
-                            
+                        # 結合 (重複削除)
+                        if combined_points:
+                            combined_points.extend(pts[1:])
+                        else:
+                            combined_points.extend(pts)
+                    
+                    # シミュレーション
                     track = resample_and_analyze(combined_points, spec)
                     if not track: continue
                     
                     sim = TrainSim(track, spec)
                     run_sec = sim.run()
                     
-                    is_last = (i == len(final_stops) - 2)
-                    cur_dwell = 0 if is_last else dwell_time
+                    is_last_stop = (i == len(selected_indices) - 2)
+                    cur_dwell = 0 if is_last_stop else dwell_time
                     total_leg = run_sec + cur_dwell
                     dist_km = track[-1]['dist'] / 1000.0
                     
                     results.append({
-                        '出発': s_start, '到着': s_end,
+                        '出発': s_name_start,
+                        '到着': s_name_end,
                         '距離(km)': round(dist_km, 2),
                         '走行時間': format_time(run_sec),
                         '停車時間': f"{cur_dwell}秒",
@@ -433,10 +480,11 @@ if raw_text:
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df_disp.to_excel(writer, sheet_name=sanitize_filename(train_type), index=False)
                     
+                    file_name = f"解析_{sanitize_filename(dept_st)}-{sanitize_filename(dest_st)}.xlsx"
                     st.download_button(
                         "Excelファイルをダウンロード",
                         data=output.getvalue(),
-                        file_name=f"直通_{sanitize_filename(dept_st)}_{sanitize_filename(dest_st)}.xlsx",
+                        file_name=file_name,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
 
