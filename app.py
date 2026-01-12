@@ -15,7 +15,7 @@ st.set_page_config(page_title="架空鉄道 所要時間シミュレータ", lay
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
 
-# 車両データベース (大幅リニューアル)
+# 車両データベース
 VEHICLE_DB = {
     "大手私鉄 一般車両 (例: 東急5000系・阪急8000系)": {
         "max_speed": 110.0, "acc": 3.0, "dec": 4.0, "curve_factor": 4.2,
@@ -41,7 +41,6 @@ VEHICLE_DB = {
         "max_speed": 300.0, "acc": 2.6, "dec": 4.5, "curve_factor": 6.0,
         "desc": "直線区間では最強だが、在来線の急カーブでは減速を強いられる。"
     },
-    # --- 追加ラインナップ ---
     "地方私鉄・旧型車 (例: 元京王・元東急譲渡車)": {
         "max_speed": 85.0, "acc": 2.5, "dec": 3.5, "curve_factor": 4.0,
         "desc": "地方路線で活躍する少し古い車両。最高速度は控えめ。"
@@ -270,29 +269,32 @@ def sanitize_filename(name):
 # アプリUI
 # ==========================================
 st.title("架空鉄道 所要時間シミュレータ")
-st.markdown("空想別館などの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
+st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 ---
-st.markdown("### 作品データの自動取得ブックマークレット")
-st.markdown("ブラウザのブックマーク機能を利用して、空想別館の作品ページからデータを簡単にコピーできます。")
-
-st.markdown("#### 登録手順")
-st.markdown("""
-1. 下記のコードをすべてコピーしてください。
-2. ブラウザのブックマークバーを右クリックし、「ページを追加」を選びます。
-3. 名前に「データ取得」などと入力します。
-4. URLの欄に、コピーしたコードを貼り付けて保存します。
-""")
-
-bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
-st.code(bookmarklet_code, language="javascript")
-
-st.markdown("#### 使い方")
-st.markdown("""
-1. 空想鉄道（空想別館）の作品ページを開きます。
-2. 登録したブックマークをクリックします。
-3. 「成功」と表示されたら、この下の入力欄に **Ctrl+V (貼り付け)** してください。
-""")
+# --- ブックマークレット解説 (折りたたみ式) ---
+with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
+    st.markdown("""
+    ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
+    このブックマークレットを使用できるのは「空想鉄道」「空想旧鉄」「空想地図」「空想別館」です。
+    """)
+    
+    st.markdown("#### 登録手順")
+    st.markdown("""
+    1. 下記のコードをすべてコピーしてください。
+    2. ブラウザのブックマークバーを右クリックし、「ページを追加」を選びます。
+    3. 名前に「データ取得」などと入力します。
+    4. URLの欄に、コピーしたコードを貼り付けて保存します。
+    """)
+    
+    bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
+    st.code(bookmarklet_code, language="javascript")
+    
+    st.markdown("#### 使い方")
+    st.markdown("""
+    1. 各サイトの作品ページを開きます。
+    2. 登録したブックマークをクリックします。
+    3. 「成功」と表示されたら、この下の入力欄に **Ctrl+V (貼り付け)** してください。
+    """)
 
 st.divider()
 
