@@ -10,7 +10,7 @@ from io import BytesIO
 # ==========================================
 # 設定・定数
 # ==========================================
-st.set_page_config(page_title="空想鉄道シミュレータ (修正版)", layout="wide")
+st.set_page_config(page_title="架空鉄道 所要時間シミュレータ", layout="wide")
 
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
@@ -100,7 +100,6 @@ def resample_and_analyze(points, spec, interval=25.0):
 # ネットワーク解析ロジック (MultiGraph対応)
 # ==========================================
 def build_network(map_data):
-    # MultiGraphに変更（同じ2駅間に複数の路線エッジを持てるようにする）
     G = nx.MultiGraph()
     edge_details = {} 
     known_stations = {}
@@ -180,11 +179,8 @@ def build_network(map_data):
                 dist += hubeny_distance(segment_points[k][0], segment_points[k][1],
                                       segment_points[k+1][0], segment_points[k+1][1])
             
-            # エッジキーとして (u, v, line_name) を使用して一意にする
-            # MultiGraphなので add_edge でキーを指定可能
             G.add_edge(u, v, key=line_name, weight=dist, line_name=line_name)
             
-            # 詳細情報も路線名込みで保存
             key = tuple(sorted((u, v)))
             if key not in edge_details:
                 edge_details[key] = {}
@@ -251,15 +247,35 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("🚆 空想鉄道シミュレータ (路線判定修正版)")
+st.title("架空鉄道 所要時間シミュレータ")
+st.markdown("空想別館などの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット ---
-with st.expander("📲 作品データの自動取得ブックマークレット"):
-    st.markdown("ブラウザのブックマークに以下を登録すると、空想別館からワンクリックでデータをコピーできます。")
-    bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
-    st.code(bookmarklet_code, language="javascript")
+# --- ブックマークレット解説 ---
+st.markdown("### 作品データの自動取得ブックマークレット")
+st.markdown("ブラウザのブックマーク機能を利用して、空想別館の作品ページからデータを簡単にコピーできます。")
+
+st.markdown("#### 登録手順")
+st.markdown("""
+1. 下記のコードをすべてコピーしてください。
+2. ブラウザのブックマークバーを右クリックし、「ページを追加」を選びます。
+3. 名前に「データ取得」などと入力します。
+4. URLの欄に、コピーしたコードを貼り付けて保存します。
+""")
+
+bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
+st.code(bookmarklet_code, language="javascript")
+
+st.markdown("#### 使い方")
+st.markdown("""
+1. 空想鉄道（空想別館）の作品ページを開きます。
+2. 登録したブックマークをクリックします。
+3. 「成功」と表示されたら、この下の入力欄に **Ctrl+V (貼り付け)** してください。
+""")
+
+st.divider()
 
 # --- データ入力 ---
+st.subheader("データの入力")
 raw_text = st.text_area(
     "作品データを貼り付けてください (Ctrl+V)",
     height=150,
@@ -288,18 +304,18 @@ if raw_text:
         st.success(f"解析完了: {len(all_stations_list)}駅 / {len(all_line_names)}路線")
         
         # --- 運転プラン ---
-        st.subheader("⚙️ 運転プラン")
+        st.subheader("運転プラン")
         
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.write("▼ ルート選択")
+            st.markdown("#### ルート選択")
             dept_st = st.selectbox("出発駅", all_stations_list, index=0)
             
             # 優先・回避設定
-            with st.expander("🛤 路線ごとの優先度設定", expanded=False):
-                avoid_lines = st.multiselect("⚠️ 避ける (コスト増)", all_line_names)
-                prioritize_lines = st.multiselect("✨ 優先する (コスト減)", all_line_names)
+            with st.expander("路線ごとの優先度設定", expanded=False):
+                avoid_lines = st.multiselect("避ける (コスト増)", all_line_names)
+                prioritize_lines = st.multiselect("優先する (コスト減)", all_line_names)
 
             dest_st = st.selectbox("到着駅", all_stations_list, index=len(all_stations_list)-1)
             
@@ -309,7 +325,7 @@ if raw_text:
             if use_via:
                 via_st = st.selectbox("経由駅", all_stations_list, index=min(10, len(all_stations_list)-1))
 
-            # --- 経路計算 (厳密な路線判定) ---
+            # --- 経路計算 ---
             try:
                 # 重み調整用のグラフコピー
                 G_calc = G.copy()
@@ -324,7 +340,7 @@ if raw_text:
                     else:
                         d['weight'] = base_weight
                 
-                # ルート探索 (ノード列のみ取得)
+                # ルート探索
                 if use_via and via_st:
                     p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
                     p2 = nx.shortest_path(G_calc, source=via_st, target=dest_st, weight='weight')
@@ -332,7 +348,7 @@ if raw_text:
                 else:
                     full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
                 
-                # 経路上の実距離と路線名の復元
+                # 経路情報の復元
                 actual_dist = 0
                 used_lines_set = set()
                 
@@ -341,10 +357,8 @@ if raw_text:
                     v = full_route_nodes[i+1]
                     key = tuple(sorted((u, v)))
                     
-                    # この区間(u-v)にある全路線のデータを取得
+                    # 最適な路線を選択
                     candidates = edge_details.get(key, {})
-                    
-                    # 優先度設定に基づいて、この区間で「最もコストが低い」路線を選ぶ
                     best_line = None
                     min_cost = float('inf')
                     
@@ -375,7 +389,7 @@ if raw_text:
                 st.stop()
 
             # 停車駅設定
-            st.write("▼ 停車パターン")
+            st.markdown("#### 停車パターン")
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("全選択"):
                 for i, s in enumerate(full_route_nodes):
@@ -393,11 +407,13 @@ if raw_text:
                         selected_indices.append(i)
 
         with col2:
-            st.write("▼ 車両・種別")
+            st.markdown("#### 車両・種別")
             vehicle_name = st.selectbox("使用車両", list(VEHICLE_DB.keys()))
             spec = VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
-            train_type = st.text_input("種別名", value="臨時")
+            
+            # 初期値を「普通」に変更
+            train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
         # --- 実行 ---
@@ -412,7 +428,7 @@ if raw_text:
                 st.error("停車駅が足りません")
             else:
                 st.divider()
-                st.subheader(f"🏁 {dept_st} 発 {dest_st} 行")
+                st.subheader(f"{dept_st} 発 {dest_st} 行")
                 
                 results = []
                 progress_bar = st.progress(0)
@@ -425,7 +441,6 @@ if raw_text:
                     s_name_start = full_route_nodes[idx_start]
                     s_name_end = full_route_nodes[idx_end]
                     
-                    # 停車駅間の全区間を結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
@@ -433,7 +448,6 @@ if raw_text:
                         u, v = segment_nodes[k], segment_nodes[k+1]
                         key = tuple(sorted((u, v)))
                         
-                        # 路線選定 (ここでも優先度設定を反映して最適な路線を選ぶ)
                         candidates = edge_details.get(key, {})
                         best_line = None
                         min_cost = float('inf')
