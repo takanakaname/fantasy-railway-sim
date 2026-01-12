@@ -10,7 +10,7 @@ from io import BytesIO
 # ==========================================
 # 設定・定数
 # ==========================================
-st.set_page_config(page_title="空想鉄道シミュレータ (直通対応)", layout="wide")
+st.set_page_config(page_title="空想鉄道シミュレータ", layout="wide")
 
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
@@ -59,7 +59,6 @@ def hubeny_distance(lat1, lon1, lat2, lon2):
 def calculate_radius(p1, p2, p3):
     d12 = hubeny_distance(p2[0], p2[1], p1[0], p1[1])
     d23 = hubeny_distance(p2[0], p2[1], p3[0], p3[1])
-    # ヘロンの公式アプローチ
     a = hubeny_distance(p1[0], p1[1], p2[0], p2[1])
     b = hubeny_distance(p2[0], p2[1], p3[0], p3[1])
     c = hubeny_distance(p3[0], p3[1], p1[0], p1[1])
@@ -98,23 +97,14 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック (スマート駅結合)
+# ネットワーク解析ロジック
 # ==========================================
 def build_network(map_data):
     G = nx.Graph()
-    edge_details = {} # (u, v) -> details
-    
-    # 駅名解決用辞書: name -> list of {id: "UniqueName", coords: (lat, lon)}
+    edge_details = {} 
     known_stations = {}
-    
-    # 路線データの事前解析と駅IDの解決
     lines = map_data.get('line', [])
-    
-    # ステップ1: 全駅のユニークIDを決定
-    # (line_index, point_index) -> unique_station_id
     station_id_map = {} 
-    
-    # 駅座標辞書 (Unique ID -> Coords)
     station_coords = {}
 
     for line_idx, line in enumerate(lines):
@@ -127,12 +117,10 @@ def build_network(map_data):
                 raw_name = p[3]
                 lat, lon = p[0], p[1]
                 
-                # 既存の同名駅があるかチェック
                 if raw_name not in known_stations:
                     known_stations[raw_name] = []
                 
                 found_id = None
-                # 近くにある同名駅を探す
                 for entry in known_stations[raw_name]:
                     dist = hubeny_distance(lat, lon, entry['coords'][0], entry['coords'][1])
                     if dist < SAME_STATION_THRESHOLD:
@@ -140,16 +128,12 @@ def build_network(map_data):
                         break
                 
                 if found_id:
-                    # 近くに見つかった -> 同じ駅として扱う
                     unique_id = found_id
                 else:
-                    # 見つからない or 遠い -> 新しい駅として登録
                     if len(known_stations[raw_name]) == 0:
                         unique_id = raw_name
                     else:
-                        # 名前重複回避: "駅名 (路線名)"
                         unique_id = f"{raw_name} ({line_name})"
-                        # それでも被る場合（同じ路線で遠い場所に同名駅があるなど稀なケース）
                         c = 2
                         base_id = unique_id
                         existing_ids = [e['id'] for e in known_stations[raw_name]]
@@ -162,13 +146,11 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
-    # ステップ2: グラフ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
         raw_points = line.get('point', [])
         
-        # この路線の駅リストを作成
         line_stations = []
         for i, p in enumerate(raw_points):
             if (line_idx, i) in station_id_map:
@@ -177,27 +159,22 @@ def build_network(map_data):
                     'raw_idx': i
                 })
         
-        # 駅間を接続
         for i in range(len(line_stations) - 1):
             st1 = line_stations[i]
             st2 = line_stations[i+1]
             u, v = st1['id'], st2['id']
             
-            # 区間座標の抽出
             segment_points = []
             for k in range(st1['raw_idx'], st2['raw_idx'] + 1):
                 p = raw_points[k]
                 segment_points.append((p[0], p[1]))
             
-            # 距離計算
             dist = 0
             for k in range(len(segment_points)-1):
                 dist += hubeny_distance(segment_points[k][0], segment_points[k][1],
                                       segment_points[k+1][0], segment_points[k+1][1])
             
             G.add_edge(u, v, weight=dist)
-            
-            # 詳細保存
             key = tuple(sorted((u, v)))
             edge_details[key] = {
                 'points': segment_points,
@@ -260,8 +237,32 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("🚆 空想鉄道シミュレータ (直通・スマート駅結合)")
-st.markdown("駅名が同じでも距離が離れている場合は別の駅として扱います。")
+st.title("🚆 空想鉄道シミュレータ")
+st.markdown("空想別館などの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
+
+# --- ブックマークレット解説 ---
+with st.expander("📲 【便利機能】作品データの自動取得ブックマークレット (導入方法はこちら)"):
+    st.markdown("""
+    ブラウザのブックマーク機能を使って、空想別館のページからワンクリックでデータを取得できます。
+    PCの方は以下の手順で登録してください。
+    """)
+    
+    bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
+    
+    st.code(bookmarklet_code, language="javascript")
+    
+    st.markdown("""
+    **【登録手順】**
+    1. ブラウザのブックマークバーなどで「右クリック」→「ページを追加」を選択。
+    2. 名前を「**空想データ取得**」など分かりやすい名前にする。
+    3. URLの欄に、**上の黒いボックス内のコードをすべてコピーして貼り付ける**。
+    4. 保存する。
+    
+    **【使い方】**
+    1. 空想鉄道（空想別館）の作品ページを開く。
+    2. 登録したブックマークをクリックする。
+    3. 「成功」と出たら、このページの入力欄に **Ctrl+V (貼り付け)** する。
+    """)
 
 # --- データ入力 ---
 raw_text = st.text_area(
