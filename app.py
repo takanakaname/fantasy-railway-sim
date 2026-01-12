@@ -5,6 +5,8 @@ import pandas as pd
 import math
 import re
 import networkx as nx
+import folium
+from streamlit_folium import st_folium
 from io import BytesIO
 
 # ==========================================
@@ -108,9 +110,9 @@ def resample_and_analyze(points, spec, interval=25.0):
     w = 3 
     for i in range(len(new_dists)):
         if i < w or i >= len(new_dists) - w:
-            R = 9999.0
-        else:
             R = calculate_radius((lats[i-w], lons[i-w]), (lats[i], lons[i]), (lats[i+w], lons[i+w]))
+        else:
+            R = 9999.0
         
         limit = spec['curve_factor'] * math.sqrt(R)
         limit = max(25.0, min(spec['max_speed'], limit))
@@ -118,7 +120,7 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック (MultiGraph対応・駅名なし対応)
+# ネットワーク解析ロジック
 # ==========================================
 def build_network(map_data):
     G = nx.MultiGraph()
@@ -128,8 +130,6 @@ def build_network(map_data):
     station_id_map = {} 
     station_coords = {}
     all_line_names = set()
-    
-    # 路線ごとの駅リスト（UI用）
     line_stations_dict = {}
 
     # 駅ID解決
@@ -142,7 +142,6 @@ def build_network(map_data):
         
         for pt_idx, p in enumerate(raw_points):
             if len(p) >= 3 and p[2] == 's':
-                
                 if len(p) >= 4 and str(p[3]).strip():
                     raw_name = str(p[3])
                 else:
@@ -179,14 +178,13 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
-    # グラフエッジ構築 & UI用リスト作成
+    # グラフエッジ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
         raw_points = line.get('point', [])
         
-        line_stations = [] # この路線の駅一覧(ID)
-        
+        line_stations = []
         for i, p in enumerate(raw_points):
             if (line_idx, i) in station_id_map:
                 st_id = station_id_map[(line_idx, i)]
@@ -195,10 +193,8 @@ def build_network(map_data):
                     'raw_idx': i
                 })
         
-        # UI用に保存 (駅名リストとして)
         line_stations_dict[line_name] = [s['id'] for s in line_stations]
         
-        # ネットワーク接続
         for i in range(len(line_stations) - 1):
             st1 = line_stations[i]
             st2 = line_stations[i+1]
@@ -227,6 +223,75 @@ def build_network(map_data):
             }
 
     return G, edge_details, station_coords, sorted(list(all_line_names)), line_stations_dict
+
+# ==========================================
+# 地図描画ロジック
+# ==========================================
+def create_route_map(route_points_list, route_nodes, station_coords, dept_st, dest_st, via_st):
+    if not route_points_list:
+        return None
+    
+    # 中心の決定（全点の平均）
+    all_lats = []
+    all_lons = []
+    for segment in route_points_list:
+        for p in segment:
+            all_lats.append(p[0])
+            all_lons.append(p[1])
+            
+    center_lat = sum(all_lats) / len(all_lats)
+    center_lon = sum(all_lons) / len(all_lons)
+    
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    
+    # 線路の描画
+    for segment in route_points_list:
+        folium.PolyLine(
+            locations=segment,
+            color="blue",
+            weight=5,
+            opacity=0.7
+        ).add_to(m)
+        
+    # 駅マーカーの描画
+    # start: 緑, end: 赤, via: オレンジ, others: 小さい青円
+    for node in route_nodes:
+        coord = station_coords.get(node)
+        if not coord: continue
+        
+        icon_color = "blue"
+        icon_type = "info-sign"
+        
+        if node == dept_st:
+            icon_color = "green"
+            icon_type = "play"
+        elif node == dest_st:
+            icon_color = "red"
+            icon_type = "stop"
+        elif node == via_st:
+            icon_color = "orange"
+            icon_type = "flag"
+        else:
+            # 中間駅は小さい円マーカー
+            folium.CircleMarker(
+                location=coord,
+                radius=4,
+                color="blue",
+                fill=True,
+                fill_color="white",
+                tooltip=node
+            ).add_to(m)
+            continue
+
+        # 主要駅はアイコン付きマーカー
+        folium.Marker(
+            location=coord,
+            popup=node,
+            tooltip=node,
+            icon=folium.Icon(color=icon_color, icon=icon_type)
+        ).add_to(m)
+        
+    return m
 
 # ==========================================
 # シミュレーションクラス
@@ -285,7 +350,7 @@ def sanitize_filename(name):
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 (折りたたみ式) ---
+# --- ブックマークレット解説 ---
 with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
     st.markdown("""
     ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
@@ -349,53 +414,41 @@ if raw_text:
         with col1:
             st.markdown("#### ルート選択")
             
-            # 出発駅：路線 -> 駅
+            # 出発
             col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                dept_line = st.selectbox("出発路線", all_line_names, key="d_line")
-            with col_d2:
-                dept_st = st.selectbox("出発駅", line_stations_dict[dept_line], key="d_st")
+            with col_d1: dept_line = st.selectbox("出発路線", all_line_names, key="d_line")
+            with col_d2: dept_st = st.selectbox("出発駅", line_stations_dict[dept_line], key="d_st")
             
-            # 優先・回避設定
+            # 優先・回避
             with st.expander("路線ごとの優先度設定", expanded=False):
                 avoid_lines = st.multiselect("避ける (コスト増)", all_line_names)
                 prioritize_lines = st.multiselect("優先する (コスト減)", all_line_names)
 
-            # 到着駅：路線 -> 駅
+            # 到着
             col_a1, col_a2 = st.columns(2)
-            with col_a1:
-                dest_line = st.selectbox("到着路線", all_line_names, key="a_line", index=len(all_line_names)-1)
-            with col_a2:
-                dest_st = st.selectbox("到着駅", line_stations_dict[dest_line], key="a_st", index=len(line_stations_dict[dest_line])-1)
+            with col_a1: dest_line = st.selectbox("到着路線", all_line_names, key="a_line", index=len(all_line_names)-1)
+            with col_a2: dest_st = st.selectbox("到着駅", line_stations_dict[dest_line], key="a_st", index=len(line_stations_dict[dest_line])-1)
             
-            # 経由地オプション
+            # 経由
             use_via = st.checkbox("経由駅を指定", value=False)
             via_st = None
             if use_via:
                 col_v1, col_v2 = st.columns(2)
-                with col_v1:
-                    via_line = st.selectbox("経由路線", all_line_names, key="v_line")
+                with col_v1: via_line = st.selectbox("経由路線", all_line_names, key="v_line")
                 with col_v2:
-                    # 経由駅は中間あたりの駅をデフォルトに
                     v_stats = line_stations_dict[via_line]
                     via_st = st.selectbox("経由駅", v_stats, key="v_st", index=min(len(v_stats)//2, len(v_stats)-1))
 
             # --- 経路計算 ---
             try:
-                # 重み調整用のグラフコピー
                 G_calc = G.copy()
                 for u, v, k, d in G_calc.edges(keys=True, data=True):
                     l_name = d.get('line_name', '')
                     base_weight = d['weight']
-                    
-                    if l_name in avoid_lines:
-                        d['weight'] = base_weight * 10.0
-                    elif l_name in prioritize_lines:
-                        d['weight'] = base_weight * 0.2
-                    else:
-                        d['weight'] = base_weight
+                    if l_name in avoid_lines: d['weight'] = base_weight * 10.0
+                    elif l_name in prioritize_lines: d['weight'] = base_weight * 0.2
+                    else: d['weight'] = base_weight
                 
-                # ルート探索
                 if use_via and via_st:
                     p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
                     p2 = nx.shortest_path(G_calc, source=via_st, target=dest_st, weight='weight')
@@ -403,16 +456,16 @@ if raw_text:
                 else:
                     full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
                 
-                # 経路情報の復元
+                # 経路情報の復元と地図用データの収集
                 actual_dist = 0
                 used_lines_set = set()
+                map_geometry_list = [] # 地図用: 各区間の点群リストのリスト
                 
                 for i in range(len(full_route_nodes)-1):
                     u = full_route_nodes[i]
                     v = full_route_nodes[i+1]
                     key = tuple(sorted((u, v)))
                     
-                    # 最適な路線を選択
                     candidates = edge_details.get(key, {})
                     best_line = None
                     min_cost = float('inf')
@@ -429,12 +482,25 @@ if raw_text:
                     if best_line:
                         used_lines_set.add(best_line)
                         actual_dist += candidates[best_line]['weight']
+                        
+                        # 地図用の座標処理
+                        pts = candidates[best_line]['points']
+                        u_coord = station_coords[u]
+                        d_start = hubeny_distance(pts[0][0], pts[0][1], u_coord[0], u_coord[1])
+                        d_end = hubeny_distance(pts[-1][0], pts[-1][1], u_coord[0], u_coord[1])
+                        
+                        if d_end < d_start:
+                            map_geometry_list.append(pts[::-1])
+                        else:
+                            map_geometry_list.append(pts)
                 
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
                 st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
 
-                with st.expander("経由する駅一覧"):
-                    st.write(" → ".join(full_route_nodes))
+                # --- 地図表示 ---
+                st.markdown("#### ルートマップ")
+                map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
+                st_folium(map_obj, height=300, width="100%")
 
             except nx.NetworkXNoPath:
                 st.error("経路が見つかりません。")
@@ -447,11 +513,9 @@ if raw_text:
             st.markdown("#### 停車パターン")
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("全選択"):
-                for i, s in enumerate(full_route_nodes):
-                    st.session_state[f"chk_{i}_{s}"] = True
+                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = True
             if btn_col2.button("全解除"):
-                for i, s in enumerate(full_route_nodes):
-                    st.session_state[f"chk_{i}_{s}"] = False
+                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = False
 
             with st.container(height=300):
                 selected_indices = []
@@ -467,7 +531,6 @@ if raw_text:
             spec = VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
             
-            # 初期値を「普通」に変更
             train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
