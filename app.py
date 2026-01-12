@@ -107,15 +107,11 @@ def resample_and_analyze(points, spec, interval=25.0):
     lons = np.interp(new_dists, cum_dist, [p[1] for p in points])
     
     track = []
-    w = 3 # 計算に使用する前後の点の幅
-    
+    w = 3 
     for i in range(len(new_dists)):
-        # 【修正】端点付近(i < w)や終点付近(i >= len - w)はカーブ計算できないので直線(9999)とする
-        # 以前のコードはここのif/elseが逆になっており、範囲外アクセス(IndexError)を起こしていました。
         if i < w or i >= len(new_dists) - w:
             R = 9999.0
         else:
-            # 中間地点のみ計算を実行
             R = calculate_radius((lats[i-w], lons[i-w]), (lats[i], lons[i]), (lats[i+w], lons[i+w]))
         
         limit = spec['curve_factor'] * math.sqrt(R)
@@ -136,7 +132,6 @@ def build_network(map_data):
     all_line_names = set()
     line_stations_dict = {}
 
-    # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
@@ -182,7 +177,6 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
-    # グラフエッジ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
@@ -497,7 +491,7 @@ if raw_text:
 
                 st.markdown("#### ルートマップ")
                 map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
-                st_folium(map_obj, height=300, width="100%")
+                st_folium(map_obj, height=600, width="100%")
 
             except nx.NetworkXNoPath:
                 st.error("経路が見つかりません。")
@@ -507,19 +501,41 @@ if raw_text:
                 st.stop()
 
             st.markdown("#### 停車パターン")
+            
+            # 停車パターン用データフレームの初期化・更新
+            route_key = f"{dept_st}-{via_st}-{dest_st}-{str(avoid_lines)}-{str(prioritize_lines)}"
+            if 'stop_pattern_key' not in st.session_state or st.session_state['stop_pattern_key'] != route_key:
+                st.session_state['stop_pattern_key'] = route_key
+                # 初期状態：全駅停車
+                initial_data = {
+                    "停車": [True] * len(full_route_nodes),
+                    "駅名": [f"{i+1}. {name}" for i, name in enumerate(full_route_nodes)],
+                    "original_index": list(range(len(full_route_nodes)))
+                }
+                st.session_state['stop_df'] = pd.DataFrame(initial_data)
+
+            # 一括操作ボタン
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("全選択"):
-                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = True
+                st.session_state['stop_df']['停車'] = True
             if btn_col2.button("全解除"):
-                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = False
+                st.session_state['stop_df']['停車'] = False
 
-            with st.container(height=300):
-                selected_indices = []
-                for i, s_name in enumerate(full_route_nodes):
-                    key = f"chk_{i}_{s_name}"
-                    if key not in st.session_state: st.session_state[key] = True
-                    if st.checkbox(f"{i+1}. {s_name}", key=key):
-                        selected_indices.append(i)
+            # データエディタ (テーブル形式でコンパクトに)
+            edited_df = st.data_editor(
+                st.session_state['stop_df'],
+                column_config={
+                    "停車": st.column_config.CheckboxColumn("停車", width="small"),
+                    "駅名": st.column_config.TextColumn("駅名", disabled=True),
+                    "original_index": None
+                },
+                hide_index=True,
+                height=300,
+                key="stop_editor"
+            )
+            
+            # 選択されたインデックスを抽出
+            selected_indices = edited_df[edited_df["停車"]]["original_index"].tolist()
 
         with col2:
             st.markdown("#### 車両・種別")
@@ -533,6 +549,7 @@ if raw_text:
         # --- 実行 ---
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
+            # 始発と終点は強制追加
             if 0 not in selected_indices: selected_indices.append(0)
             last_idx = len(full_route_nodes) - 1
             if last_idx not in selected_indices: selected_indices.append(last_idx)
