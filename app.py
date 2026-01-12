@@ -143,24 +143,26 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("空想鉄道シミュレータ Web版")
-st.markdown("空想鉄道の作品データ(JSON/txt)を読み込み、運転シミュレーションを行います。")
+st.title("🚆 空想鉄道シミュレータ Web版")
+st.markdown("空想鉄道の作品データ(JSON/txt)を貼り付けて、運転シミュレーションを行います。")
 
-# 1. データ入力
-uploaded_file = st.file_uploader("作品データ(.txt)をアップロード", type=['txt', 'json'])
+# --- 1. データ入力エリア (テキストエリアに変更) ---
+raw_text = st.text_area(
+    "作品データを貼り付けてください (Ctrl+V)",
+    height=200,
+    placeholder='ここに {"mapinfo": ... } から始まるデータを貼り付けます'
+)
 
-if uploaded_file is not None:
+if raw_text:
     try:
         # データの読み込み
-        stringio = uploaded_file.getvalue().decode("utf-8")
-        
         try:
-            data = json.loads(stringio)
+            data = json.loads(raw_text)
         except:
-            # {の前まで削除してトライ
-            idx = stringio.find('{')
+            # 余計な文字が前後にある場合の対策
+            idx = raw_text.find('{')
             if idx != -1:
-                data = json.loads(stringio[idx:])
+                data = json.loads(raw_text[idx:])
             else:
                 st.error("有効なJSONデータが見つかりませんでした。")
                 st.stop()
@@ -187,7 +189,7 @@ if uploaded_file is not None:
         st.success(f"読み込み成功: {map_title} ({len(line_dict)}路線)")
         
         # --- 設定エリア ---
-        st.subheader("運転設定")
+        st.subheader("⚙️ 運転設定")
         
         col1, col2 = st.columns(2)
         
@@ -242,7 +244,6 @@ if uploaded_file is not None:
             else:
                 # 選択された駅データの再構築
                 selected_stops = [s for s in all_stations if s['name'] in selected_names]
-                # 元の並び順を維持
                 selected_stops.sort(key=lambda x: x['idx'])
                 
                 # 始発・終着の強制追加
@@ -255,7 +256,7 @@ if uploaded_file is not None:
                 selected_stops.sort(key=lambda x: x['idx'])
 
                 st.divider()
-                st.subheader(f"{selected_line_name} ({train_type})")
+                st.subheader(f"🏁 {selected_line_name} ({train_type})")
                 st.write(f"車両: {vehicle_name.split('(')[0]} / 停車駅数: {len(selected_stops)}")
 
                 results = []
@@ -265,10 +266,8 @@ if uploaded_file is not None:
                     start_st = selected_stops[i]
                     end_st = selected_stops[i+1]
                     
-                    # 進捗更新
                     progress_bar.progress((i + 1) / (len(selected_stops) - 1))
                     
-                    # 区間データ抽出
                     seg_points = line_points[start_st['idx'] : end_st['idx'] + 1]
                     track = resample_and_analyze(seg_points, spec)
                     
@@ -300,7 +299,6 @@ if uploaded_file is not None:
                     sum_dwell = df['_dwell'].sum()
                     total_all = sum_run + sum_dwell
                     
-                    # 合計行
                     sum_row = pd.DataFrame([{
                         '出発': '【合計】', '到着': '',
                         '距離(km)': df['距離(km)'].sum(),
@@ -314,7 +312,6 @@ if uploaded_file is not None:
                     
                     st.dataframe(df_disp, use_container_width=True)
                     
-                    # Excelダウンロード
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df_disp.to_excel(writer, sheet_name=sanitize_filename(train_type), index=False)
