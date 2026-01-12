@@ -118,7 +118,7 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック (MultiGraph対応)
+# ネットワーク解析ロジック (MultiGraph対応・駅名なし対応)
 # ==========================================
 def build_network(map_data):
     G = nx.MultiGraph()
@@ -138,8 +138,16 @@ def build_network(map_data):
         raw_points = line.get('point', [])
         
         for pt_idx, p in enumerate(raw_points):
-            if len(p) >= 4 and p[2] == 's':
-                raw_name = p[3]
+            # p[2] == 's' で駅判定。要素数が3以上あればチェック可能
+            if len(p) >= 3 and p[2] == 's':
+                
+                # 駅名取得ロジック (空文字や欠損に対応)
+                if len(p) >= 4 and str(p[3]).strip():
+                    raw_name = str(p[3])
+                else:
+                    # 駅名がない場合は仮名を付与
+                    raw_name = f"未設定駅({line_idx}-{pt_idx})"
+
                 lat, lon = p[0], p[1]
                 
                 if raw_name not in known_stations:
@@ -436,7 +444,6 @@ if raw_text:
             spec = VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
             
-            # 初期値を「普通」に変更
             train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
