@@ -146,7 +146,7 @@ def sanitize_filename(name):
 st.title("🚆 空想鉄道シミュレータ Web版")
 st.markdown("空想鉄道の作品データ(JSON/txt)を貼り付けて、運転シミュレーションを行います。")
 
-# --- 1. データ入力エリア (テキストエリアに変更) ---
+# --- 1. データ入力エリア ---
 raw_text = st.text_area(
     "作品データを貼り付けてください (Ctrl+V)",
     height=200,
@@ -159,7 +159,6 @@ if raw_text:
         try:
             data = json.loads(raw_text)
         except:
-            # 余計な文字が前後にある場合の対策
             idx = raw_text.find('{')
             if idx != -1:
                 data = json.loads(raw_text[idx:])
@@ -191,7 +190,7 @@ if raw_text:
         # --- 設定エリア ---
         st.subheader("⚙️ 運転設定")
         
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([1, 1])
         
         with col1:
             selected_line_name = st.selectbox("対象路線", list(line_dict.keys()))
@@ -208,23 +207,38 @@ if raw_text:
                 if len(p)>=4 and p[2]=='s':
                     all_stations.append({'name': p[3], 'idx': i})
             
-            # デフォルトですべて選択
-            all_station_names = [s['name'] for s in all_stations]
+            st.write("▼ 停車する駅にチェックを入れてください (チェック無しは通過)")
             
-            # 停車駅選択UI (マルチセレクト)
-            container = st.container()
-            all_check = st.checkbox("全駅停車する", value=True)
+            # --- トグル式停車駅選択 UI ---
+            # セッションステートのキーが一意になるように路線名を含める
             
-            if all_check:
-                selected_names = all_station_names
-                st.info("各駅停車で運転します")
-            else:
-                selected_names = st.multiselect(
-                    "停車する駅を選択 (通過する駅は外してください)",
-                    all_station_names,
-                    default=all_station_names
-                )
-        
+            # 全選択・全解除ボタン
+            btn_col1, btn_col2 = st.columns(2)
+            if btn_col1.button("全選択 (各停)"):
+                for s in all_stations:
+                    st.session_state[f"chk_{selected_line_name}_{s['idx']}"] = True
+            
+            if btn_col2.button("全解除 (通過)"):
+                for s in all_stations:
+                    st.session_state[f"chk_{selected_line_name}_{s['idx']}"] = False
+            
+            # チェックボックス一覧 (スクロール可能なコンテナに入れると見やすい)
+            with st.container(height=300):
+                selected_names = []
+                for s in all_stations:
+                    # キーを作成
+                    key = f"chk_{selected_line_name}_{s['idx']}"
+                    # 初期値の設定 (まだ存在しない場合はTrue=停車)
+                    if key not in st.session_state:
+                        st.session_state[key] = True
+                    
+                    # チェックボックスの表示
+                    is_checked = st.checkbox(s['name'], key=key)
+                    if is_checked:
+                        selected_names.append(s['name'])
+            
+            st.caption(f"停車駅数: {len(selected_names)} / {len(all_stations)}")
+
         with col2:
             vehicle_name = st.selectbox(
                 "使用車両",
@@ -232,25 +246,34 @@ if raw_text:
                 index=0
             )
             spec = VEHICLE_DB[vehicle_name]
-            st.caption(f"解説: {spec['desc']}")
+            st.info(f"解説: {spec['desc']}")
             
             train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
         # 実行ボタン
-        if st.button("シミュレーション実行", type="primary"):
+        st.write("")
+        if st.button("シミュレーション実行", type="primary", use_container_width=True):
             if len(selected_names) < 2:
-                st.error("停車駅は2つ以上必要です。")
+                st.error("停車駅は2つ以上必要です。始発と終点だけでも選択してください。")
             else:
                 # 選択された駅データの再構築
                 selected_stops = [s for s in all_stations if s['name'] in selected_names]
+                # 元の並び順を維持
                 selected_stops.sort(key=lambda x: x['idx'])
                 
-                # 始発・終着の強制追加
+                # 始発・終着の強制追加チェック
+                modified = False
                 if all_stations[0] not in selected_stops:
                     selected_stops.insert(0, all_stations[0])
+                    modified = True
                 if all_stations[-1] not in selected_stops:
                     selected_stops.append(all_stations[-1])
+                    modified = True
+                
+                if modified:
+                    st.toast("⚠️ 始発駅または終着駅が未選択だったため、自動的に追加しました。", icon="ℹ️")
+                
                 # 重複除去
                 selected_stops = [dict(t) for t in {tuple(d.items()) for d in selected_stops}]
                 selected_stops.sort(key=lambda x: x['idx'])
@@ -291,7 +314,7 @@ if raw_text:
                         '_run': run_sec, '_dwell': cur_dwell
                     })
                 
-                progress_bar.empty()
+                progress_bar.progress(100)
                 
                 if results:
                     df = pd.DataFrame(results)
@@ -319,7 +342,7 @@ if raw_text:
                     file_name = f"{sanitize_filename(map_title)}_{sanitize_filename(selected_line_name)}_{sanitize_filename(train_type)}.xlsx"
                     
                     st.download_button(
-                        label="Excelファイルをダウンロード",
+                        label="📄 Excelファイルをダウンロード",
                         data=output.getvalue(),
                         file_name=file_name,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
