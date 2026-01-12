@@ -10,7 +10,7 @@ from io import BytesIO
 # ==========================================
 # 設定・定数
 # ==========================================
-st.set_page_config(page_title="空想鉄道シミュレータ (コスト調整版)", layout="wide")
+st.set_page_config(page_title="空想鉄道シミュレータ (修正版)", layout="wide")
 
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
@@ -97,10 +97,11 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック
+# ネットワーク解析ロジック (MultiGraph対応)
 # ==========================================
 def build_network(map_data):
-    G = nx.Graph()
+    # MultiGraphに変更（同じ2駅間に複数の路線エッジを持てるようにする）
+    G = nx.MultiGraph()
     edge_details = {} 
     known_stations = {}
     lines = map_data.get('line', [])
@@ -179,12 +180,18 @@ def build_network(map_data):
                 dist += hubeny_distance(segment_points[k][0], segment_points[k][1],
                                       segment_points[k+1][0], segment_points[k+1][1])
             
-            # グラフに「路線名」も属性として保存する
-            G.add_edge(u, v, weight=dist, line_name=line_name)
+            # エッジキーとして (u, v, line_name) を使用して一意にする
+            # MultiGraphなので add_edge でキーを指定可能
+            G.add_edge(u, v, key=line_name, weight=dist, line_name=line_name)
             
+            # 詳細情報も路線名込みで保存
             key = tuple(sorted((u, v)))
-            edge_details[key] = {
+            if key not in edge_details:
+                edge_details[key] = {}
+            
+            edge_details[key][line_name] = {
                 'points': segment_points,
+                'weight': dist,
                 'line_name': line_name
             }
 
@@ -244,7 +251,7 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
-st.title("🚆 空想鉄道シミュレータ (路線コスト調整版)")
+st.title("🚆 空想鉄道シミュレータ (路線判定修正版)")
 
 # --- ブックマークレット ---
 with st.expander("📲 作品データの自動取得ブックマークレット"):
@@ -289,32 +296,24 @@ if raw_text:
             st.write("▼ ルート選択")
             dept_st = st.selectbox("出発駅", all_stations_list, index=0)
             
-            # --- 路線コスト調整エリア ---
-            with st.expander("🛤 路線ごとの優先度設定 (迂回・優先)", expanded=False):
-                st.write("特定の路線を避けたり、優先的に使ったりする設定です。")
-                
-                # マルチセレクトで指定
-                avoid_lines = st.multiselect(
-                    "⚠️ なるべく避ける (コスト10倍)",
-                    all_line_names,
-                    help="選ばれた路線は、距離が10倍あるとみなして計算されます（遠回りしてでも他の路線を使おうとします）。"
-                )
-                
-                prioritize_lines = st.multiselect(
-                    "✨ 優先して使う (コスト1/5)",
-                    all_line_names,
-                    help="選ばれた路線は、距離が1/5しかないとみなして計算されます（遠回りでも積極的にこの路線を使います）。"
-                )
+            # 優先・回避設定
+            with st.expander("🛤 路線ごとの優先度設定", expanded=False):
+                avoid_lines = st.multiselect("⚠️ 避ける (コスト増)", all_line_names)
+                prioritize_lines = st.multiselect("✨ 優先する (コスト減)", all_line_names)
 
             dest_st = st.selectbox("到着駅", all_stations_list, index=len(all_stations_list)-1)
             
-            # --- 経路計算 (コスト適用) ---
+            # 経由地オプション
+            use_via = st.checkbox("経由駅を指定", value=False)
+            via_st = None
+            if use_via:
+                via_st = st.selectbox("経由駅", all_stations_list, index=min(10, len(all_stations_list)-1))
+
+            # --- 経路計算 (厳密な路線判定) ---
             try:
-                # グラフのコピーを作って重みをいじる
+                # 重み調整用のグラフコピー
                 G_calc = G.copy()
-                
-                # 重み調整ループ
-                for u, v, d in G_calc.edges(data=True):
+                for u, v, k, d in G_calc.edges(keys=True, data=True):
                     l_name = d.get('line_name', '')
                     base_weight = d['weight']
                     
@@ -325,25 +324,45 @@ if raw_text:
                     else:
                         d['weight'] = base_weight
                 
-                # 計算
-                full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
+                # ルート探索 (ノード列のみ取得)
+                if use_via and via_st:
+                    p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
+                    p2 = nx.shortest_path(G_calc, source=via_st, target=dest_st, weight='weight')
+                    full_route_nodes = p1 + p2[1:]
+                else:
+                    full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
                 
-                # 実際の距離を再計算（表示用）
+                # 経路上の実距離と路線名の復元
                 actual_dist = 0
-                for i in range(len(full_route_nodes)-1):
-                    key = tuple(sorted((full_route_nodes[i], full_route_nodes[i+1])))
-                    if key in G.edges():
-                        actual_dist += G.edges()[key]['weight']
+                used_lines_set = set()
                 
-                # 経由路線名の収集
-                used_lines = set()
                 for i in range(len(full_route_nodes)-1):
-                    key = tuple(sorted((full_route_nodes[i], full_route_nodes[i+1])))
-                    if key in edge_details:
-                        used_lines.add(edge_details[key]['line_name'])
+                    u = full_route_nodes[i]
+                    v = full_route_nodes[i+1]
+                    key = tuple(sorted((u, v)))
+                    
+                    # この区間(u-v)にある全路線のデータを取得
+                    candidates = edge_details.get(key, {})
+                    
+                    # 優先度設定に基づいて、この区間で「最もコストが低い」路線を選ぶ
+                    best_line = None
+                    min_cost = float('inf')
+                    
+                    for l_name, info in candidates.items():
+                        cost = info['weight']
+                        if l_name in avoid_lines: cost *= 10.0
+                        elif l_name in prioritize_lines: cost *= 0.2
+                        
+                        if cost < min_cost:
+                            min_cost = cost
+                            best_line = l_name
+                    
+                    if best_line:
+                        used_lines_set.add(best_line)
+                        actual_dist += candidates[best_line]['weight']
                 
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
-                st.caption(f"経由路線: {', '.join(list(used_lines))}")
+                st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
 
                 with st.expander("経由する駅一覧"):
                     st.write(" → ".join(full_route_nodes))
@@ -406,16 +425,29 @@ if raw_text:
                     s_name_start = full_route_nodes[idx_start]
                     s_name_end = full_route_nodes[idx_end]
                     
+                    # 停車駅間の全区間を結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
                     for k in range(len(segment_nodes) - 1):
                         u, v = segment_nodes[k], segment_nodes[k+1]
                         key = tuple(sorted((u, v)))
-                        details = edge_details.get(key)
-                        if not details: continue
                         
-                        pts = details['points']
+                        # 路線選定 (ここでも優先度設定を反映して最適な路線を選ぶ)
+                        candidates = edge_details.get(key, {})
+                        best_line = None
+                        min_cost = float('inf')
+                        for l_name, info in candidates.items():
+                            cost = info['weight']
+                            if l_name in avoid_lines: cost *= 10.0
+                            elif l_name in prioritize_lines: cost *= 0.2
+                            if cost < min_cost:
+                                min_cost = cost
+                                best_line = l_name
+                        
+                        if not best_line: continue
+                        
+                        pts = candidates[best_line]['points']
                         u_coord = station_coords[u]
                         d_start = hubeny_distance(pts[0][0], pts[0][1], u_coord[0], u_coord[1])
                         d_end = hubeny_distance(pts[-1][0], pts[-1][1], u_coord[0], u_coord[1])
