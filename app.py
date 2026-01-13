@@ -5,7 +5,7 @@ import pandas as pd
 from streamlit_folium import st_folium
 import config
 import core_logic
-import os # ファイル操作用
+import os
 
 # ==========================================
 # ページ設定
@@ -104,9 +104,11 @@ st.divider()
 # --- データ入力エリア ---
 st.subheader("データの入力")
 
-# セッション状態の初期化 (テキストエリア用)
+# セッション状態の初期化
 if "input_json" not in st.session_state:
     st.session_state["input_json"] = ""
+if "simulation_results" not in st.session_state:
+    st.session_state["simulation_results"] = None
 
 # サンプルデータ読み込み関数
 def load_sample_data():
@@ -115,19 +117,21 @@ def load_sample_data():
         try:
             with open(sample_file, "r", encoding="utf-8") as f:
                 st.session_state["input_json"] = f.read()
+                # データが変わったら結果はリセット
+                st.session_state["simulation_results"] = None
         except Exception as e:
             st.error(f"ファイル読み込みエラー: {e}")
     else:
-        st.error(f"エラー: '{sample_file}' が見つかりません。app.pyと同じ場所に配置してください。")
+        st.error(f"エラー: '{sample_file}' が見つかりません。")
 
-# サンプルボタンの表示
+# サンプルボタン
 col_sample_text, col_sample_btn = st.columns([0.8, 0.2])
 with col_sample_text:
     st.markdown("初めての方はこちらをお試しください 👉 **サンプル: [東々鉄道](https://annex.chi-zu.net/omZFU-4kqRA.html)** (空想別館)")
 with col_sample_btn:
     st.button("サンプルをロード", on_click=load_sample_data, type="secondary", use_container_width=True)
 
-# テキストエリア (keyを指定してsession_stateと紐付け)
+# テキストエリア
 raw_text = st.text_area(
     "作品データを貼り付けてください (Ctrl+V)",
     height=150,
@@ -148,7 +152,7 @@ if raw_text:
         
         map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
         
-        # ネットワーク構築 (Core Logic呼び出し)
+        # ネットワーク構築
         G, edge_details, station_coords, all_line_names, line_stations_dict = core_logic.build_network(map_data)
         all_stations_list = sorted(list(G.nodes()))
         
@@ -158,10 +162,9 @@ if raw_text:
         st.subheader("運転プラン")
         col1, col2 = st.columns([1, 1])
         
-        # 変数の初期化
+        # 変数初期化
         full_route_nodes = []
         map_obj = None
-        edge_details_subset = {} 
         
         # --- 左カラム: ルート選択 ---
         with col1:
@@ -179,7 +182,7 @@ if raw_text:
             if use_via:
                 via_st = station_selector_widget("経由駅", all_stations_list, line_stations_dict, all_line_names, "via", 0)
 
-        # --- 経路計算処理 ---
+        # --- 経路計算 ---
         try:
             full_route_nodes = core_logic.find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_lines)
             
@@ -187,7 +190,7 @@ if raw_text:
                 st.error("経路が見つかりません。")
                 st.stop()
             
-            # 経路情報の復元と地図データの準備
+            # データ準備
             actual_dist = 0
             used_lines_list = []
             map_geometry_list = []
@@ -203,24 +206,20 @@ if raw_text:
                     cost = info['weight']
                     if l_name in avoid_lines: cost *= 10.0
                     elif l_name in prioritize_lines: cost *= 0.2
-                    if cost < min_cost:
-                        min_cost = cost
-                        best_line = l_name
+                    if cost < min_cost: min_cost, best_line = cost, l_name
                 
                 if best_line:
                     if not used_lines_list or used_lines_list[-1] != best_line:
                         used_lines_list.append(best_line)
-                    
                     actual_dist += candidates[best_line]['weight']
                     pts = candidates[best_line]['points']
-                    
                     u_c = station_coords[u]
                     d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                     d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                     if d_e < d_s: map_geometry_list.append(pts[::-1])
                     else: map_geometry_list.append(pts)
 
-            # 地図オブジェクト作成
+            # 地図作成
             map_obj = core_logic.create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
 
             with col1:
@@ -231,7 +230,7 @@ if raw_text:
             st.error(f"経路計算エラー: {e}")
             st.stop()
 
-        # --- 右カラム: 地図表示 ---
+        # --- 右カラム: 地図 ---
         with col2:
             st.markdown("#### ルートマップ")
             if map_obj:
@@ -245,11 +244,8 @@ if raw_text:
         
         with col1:
             st.markdown("#### 停車パターン設定")
-            
-            # グローバル設定
             global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5)
             
-            # データエディター用データ
             df_stops = pd.DataFrame({
                 "index": range(len(full_route_nodes)),
                 "駅名": full_route_nodes,
@@ -286,28 +282,22 @@ if raw_text:
         # --- 実行 ---
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
-            if 0 not in selected_indices: selected_indices.append(0)
-            last_idx = len(full_route_nodes) - 1
-            if last_idx not in selected_indices: selected_indices.append(last_idx)
-            selected_indices.sort()
-            
-            if len(selected_indices) < 2:
+            if 0 not in selected_indices:
                 st.error("停車駅が足りません")
             else:
-                st.divider()
-                st.subheader(f"{dept_st} 発 {dest_st} 行")
+                last_idx = len(full_route_nodes) - 1
+                if last_idx not in selected_indices: selected_indices.append(last_idx)
+                selected_indices.sort()
                 
                 results = []
+                # プログレスバーは重くなる要因になるため、処理が重い場合は省略しても良いが一旦残す
                 progress_bar = st.progress(0)
                 
                 for i in range(len(selected_indices) - 1):
                     progress_bar.progress((i+1)/(len(selected_indices)-1))
                     idx_start = selected_indices[i]
                     idx_end = selected_indices[i+1]
-                    s_start = full_route_nodes[idx_start]
-                    s_end = full_route_nodes[idx_end]
                     
-                    # 区間結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
@@ -322,9 +312,7 @@ if raw_text:
                             cost = info['weight']
                             if l_name in avoid_lines: cost *= 10.0
                             elif l_name in prioritize_lines: cost *= 0.2
-                            if cost < min_cost:
-                                min_cost = cost
-                                best_line = l_name
+                            if cost < min_cost: min_cost, best_line = cost, l_name
                         
                         if best_line:
                             pts = candidates[best_line]['points']
@@ -332,10 +320,8 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
-                            
                             combined_points.extend(pts[1:] if combined_points else pts)
                     
-                    # 物理シミュレーション
                     track = core_logic.resample_and_analyze(combined_points, spec)
                     if track:
                         sim = core_logic.TrainSim(track, spec)
@@ -350,16 +336,16 @@ if raw_text:
                         dist_km = track[-1]['dist'] / 1000.0
                         
                         results.append({
-                            '出発': s_start, '到着': s_end,
+                            '出発': full_route_nodes[idx_start],
+                            '到着': full_route_nodes[idx_end],
                             '距離(km)': round(dist_km, 2),
                             '走行時間': core_logic.format_time(run_sec),
                             '停車時間': f"{cur_dwell}秒",
                             '計': core_logic.format_time(total_leg),
                             '_run': run_sec, '_dwell': cur_dwell
                         })
-
-                progress_bar.progress(100)
                 
+                # 結果をDataFrame化してセッションステートに保存
                 if results:
                     df = pd.DataFrame(results)
                     sum_run = df['_run'].sum()
@@ -373,11 +359,24 @@ if raw_text:
                         '停車時間': core_logic.format_time(sum_dwell),
                         '計': core_logic.format_time(total_all)
                     }])
-                    
-                    df_disp = pd.concat([df, sum_row], ignore_index=True)
-                    df_disp = df_disp[['出発', '到着', '距離(km)', '走行時間', '停車時間', '計']]
-                    
-                    st.dataframe(df_disp, use_container_width=True)
+                    st.session_state["simulation_results"] = pd.concat([df, sum_row], ignore_index=True)
+                else:
+                    st.session_state["simulation_results"] = None
+
+        # --- 結果表示 (セッションステートから読み出し) ---
+        if st.session_state["simulation_results"] is not None:
+            st.divider()
+            st.subheader("📊 シミュレーション結果")
+            
+            df_res = st.session_state["simulation_results"]
+            # 表示用にカラムを絞る
+            cols_to_show = ['出発', '到着', '距離(km)', '走行時間', '停車時間', '計']
+            st.dataframe(df_res[cols_to_show], use_container_width=True)
+            
+            # スクロール余白
+            st.write("") 
+            st.write("")
+            st.write("")
 
     except Exception as e:
         st.error(f"エラー: {e}")
