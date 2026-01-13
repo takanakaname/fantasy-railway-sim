@@ -125,8 +125,9 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック
+# ネットワーク解析ロジック (キャッシュ対応)
 # ==========================================
+@st.cache_data(show_spinner="マップデータを解析中...")
 def build_network(map_data):
     G = nx.MultiGraph()
     edge_details = {} 
@@ -137,6 +138,7 @@ def build_network(map_data):
     all_line_names = set()
     line_stations_dict = {}
 
+    # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
@@ -182,6 +184,7 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
+    # グラフエッジ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
@@ -470,6 +473,8 @@ if raw_text:
         col1, col2 = st.columns([1, 1])
         
         with col1:
+            st.markdown("#### ルート選択")
+            
             # 出発駅
             dept_st = station_selector_widget(
                 "出発駅", all_stations_list, line_stations_dict, all_line_names, "dept", default_idx=0
