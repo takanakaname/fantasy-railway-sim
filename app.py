@@ -9,8 +9,14 @@ from io import BytesIO
 import config
 import core_logic
 
+# ==========================================
 # ページ設定
-st.set_page_config(page_title="架空鉄道 所要時間シミュレータ", page_icon="🚆", layout="wide")
+# ==========================================
+st.set_page_config(
+    page_title="架空鉄道 所要時間シミュレータ",
+    page_icon="🚆",
+    layout="wide"
+)
 
 # ==========================================
 # UIコンポーネント: 駅選択
@@ -43,16 +49,25 @@ with st.sidebar:
     st.markdown("開発者: **高那**")
     st.markdown("[X (Twitter): @takanakaname](https://x.com/takanakaname)")
     st.divider()
+    
     st.markdown("### ⚠️ 免責事項・規約")
     with st.expander("利用規約・クレジットを確認"):
+        # 改行が反映されるように空行を挟んで記述
         st.markdown("""
         **1. 非公式ツール**
+        
         本ツールは「空想鉄道」シリーズ等の公式運営とは一切関係のない、個人のファンメイドツールです。
+        
         **2. データの取り扱い**
-        入力された作品データは、ブラウザ上および一時的なメモリ内でのみ処理されます。サーバーへの保存は行いません。
+        
+        入力された作品データは、ブラウザ上および一時的なメモリ内でのみ処理されます。サーバーへの保存や、制作者によるデータの収集は行っていません。
+        
         **3. 免責**
-        計算結果の正確性は保証されません。本ツールを使用したことによる損害について責任を負いません。
+        
+        本ツールの計算結果（所要時間・距離など）の正確性は保証されません。本ツールを使用したことによる損害やトラブルについて、制作者は一切の責任を負いません。
+        
         **4. 地図データ出典**
+        
         Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
         """)
 
@@ -62,19 +77,37 @@ with st.sidebar:
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# ブックマークレット解説
-with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
-    st.markdown("ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。")
-    st.markdown("#### 登録手順")
-    st.markdown("以下のコードをブックマークのURL欄に保存してください。")
+# --- ブックマークレット解説 ---
+with st.expander("📲 作品データの自動取得ブックマークレット (使い方)", expanded=False):
+    st.markdown("""
+    ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
+    
+    このブックマークレットを使用できるのは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**です。
+    """)
+    
+    st.markdown("#### 1. 登録手順")
+    st.markdown("""
+    1.  まず、**下の黒いボックス内のコードをすべてコピー**してください。
+    2.  ブラウザのブックマークバーなどで「右クリック」→「ページを追加（ブックマークを追加）」を選択します。
+    3.  名前を「**空想データ取得**」など分かりやすい名前にします。
+    4.  URLの欄に、**さきほどコピーしたコードを貼り付け**て保存します。
+    """)
+    
     bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     st.code(bookmarklet_code, language="javascript")
+    
+    st.markdown("#### 2. 使い方")
+    st.markdown("""
+    1.  空想鉄道（空想別館など）の**作品ページ**を開きます。
+    2.  登録した**ブックマークをクリック**します。
+    3.  画面に「成功」と表示されたら、このシミュレータの「データの入力」欄に戻り、**Ctrl+V (貼り付け)** してください。
+    """)
 
 st.divider()
 
 # データ入力
 st.subheader("データの入力")
-raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150, placeholder='{"mapinfo": ... }')
+raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150, placeholder='{"mapinfo": ... } から始まるJSONデータ')
 
 if raw_text:
     try:
@@ -87,11 +120,13 @@ if raw_text:
         if isinstance(data.get('mapdata'), str): map_data = json.loads(data['mapdata'])
         else: map_data = data
         
+        map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
+        
         # ネットワーク構築 (Core Logic呼び出し)
         G, edge_details, station_coords, all_line_names, line_stations_dict = core_logic.build_network(map_data)
         all_stations_list = sorted(list(G.nodes()))
         
-        st.success(f"解析完了: {len(all_stations_list)}駅 / {len(all_line_names)}路線")
+        st.success(f"解析完了: {map_title} ({len(all_stations_list)}駅 / {len(all_line_names)}路線)")
         
         # 運転プラン
         st.subheader("運転プラン")
@@ -119,7 +154,7 @@ if raw_text:
                 st.error("経路が見つかりません。")
                 st.stop()
             
-            # 経路情報の復元と地図データの準備
+            # 経路情報の復元
             actual_dist = 0
             used_lines_list = []
             map_geometry_list = []
@@ -129,7 +164,6 @@ if raw_text:
                 key = tuple(sorted((u, v)))
                 candidates = edge_details.get(key, {})
                 
-                # 最適路線の選定 (優先度考慮)
                 best_line = None
                 min_cost = float('inf')
                 for l_name, info in candidates.items():
@@ -141,18 +175,16 @@ if raw_text:
                         best_line = l_name
                 
                 if best_line:
-                    # 経由路線の記録 (連続重複排除)
                     if not used_lines_list or used_lines_list[-1] != best_line:
                         used_lines_list.append(best_line)
                     
                     actual_dist += candidates[best_line]['weight']
                     pts = candidates[best_line]['points']
                     
-                    # 向き判定
                     u_c = station_coords[u]
-                    d_start = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
-                    d_end = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
-                    if d_end < d_start: map_geometry_list.append(pts[::-1])
+                    d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
+                    d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
+                    if d_e < d_s: map_geometry_list.append(pts[::-1])
                     else: map_geometry_list.append(pts)
 
             st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
@@ -212,7 +244,6 @@ if raw_text:
                     s_start = full_route_nodes[idx_start]
                     s_end = full_route_nodes[idx_end]
                     
-                    # 区間結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
@@ -237,11 +268,8 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
-                            
-                            if combined_points: combined_points.extend(pts[1:])
-                            else: combined_points.extend(pts)
+                            combined_points.extend(pts[1:] if combined_points else pts)
                     
-                    # 物理シミュレーション
                     track = core_logic.resample_and_analyze(combined_points, spec)
                     if track:
                         sim = core_logic.TrainSim(track, spec)
