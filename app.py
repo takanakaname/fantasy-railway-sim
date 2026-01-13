@@ -5,6 +5,7 @@ import pandas as pd
 from streamlit_folium import st_folium
 import config
 import core_logic
+import os # ファイル操作用
 
 # ==========================================
 # ページ設定
@@ -100,9 +101,39 @@ with st.expander("作品データの自動取得ブックマークレット (使
 
 st.divider()
 
-# データ入力
+# --- データ入力エリア ---
 st.subheader("データの入力")
-raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150, placeholder='{"mapinfo": ... } から始まるJSONデータ')
+
+# セッション状態の初期化 (テキストエリア用)
+if "input_json" not in st.session_state:
+    st.session_state["input_json"] = ""
+
+# サンプルデータ読み込み関数
+def load_sample_data():
+    sample_file = "toto_railway.txt"
+    if os.path.exists(sample_file):
+        try:
+            with open(sample_file, "r", encoding="utf-8") as f:
+                st.session_state["input_json"] = f.read()
+        except Exception as e:
+            st.error(f"ファイル読み込みエラー: {e}")
+    else:
+        st.error(f"エラー: '{sample_file}' が見つかりません。app.pyと同じ場所に配置してください。")
+
+# サンプルボタンの表示
+col_sample_text, col_sample_btn = st.columns([0.8, 0.2])
+with col_sample_text:
+    st.markdown("初めての方はこちらをお試しください 👉 **サンプル: [東々鉄道](https://annex.chi-zu.net/omZFU-4kqRA.html)** (空想別館)")
+with col_sample_btn:
+    st.button("サンプルをロード", on_click=load_sample_data, type="secondary", use_container_width=True)
+
+# テキストエリア (keyを指定してsession_stateと紐付け)
+raw_text = st.text_area(
+    "作品データを貼り付けてください (Ctrl+V)",
+    height=150,
+    placeholder='{"mapinfo": ... } から始まるJSONデータ',
+    key="input_json" 
+)
 
 if raw_text:
     try:
@@ -130,7 +161,7 @@ if raw_text:
         # 変数の初期化
         full_route_nodes = []
         map_obj = None
-        edge_details_subset = {} # 経路上のエッジ情報
+        edge_details_subset = {} 
         
         # --- 左カラム: ルート選択 ---
         with col1:
