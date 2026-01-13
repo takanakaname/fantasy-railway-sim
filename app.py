@@ -14,6 +14,20 @@ from io import BytesIO
 # ==========================================
 st.set_page_config(page_title="架空鉄道 所要時間シミュレータ", layout="wide")
 
+# カスタムCSS: 全体の余白調整
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    /* 地図の余白調整 */
+    iframe {
+        width: 100%;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
 
@@ -120,7 +134,7 @@ def resample_and_analyze(points, spec, interval=25.0):
     return track
 
 # ==========================================
-# ネットワーク解析ロジック
+# ネットワーク解析
 # ==========================================
 def build_network(map_data):
     G = nx.MultiGraph()
@@ -136,7 +150,6 @@ def build_network(map_data):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
         all_line_names.add(line_name)
-        
         raw_points = line.get('point', [])
         
         for pt_idx, p in enumerate(raw_points):
@@ -223,7 +236,7 @@ def build_network(map_data):
     return G, edge_details, station_coords, sorted(list(all_line_names)), line_stations_dict
 
 # ==========================================
-# 地図描画ロジック
+# 地図描画
 # ==========================================
 def create_route_map(route_points_list, route_nodes, station_coords, dept_st, dest_st, via_st):
     if not route_points_list:
@@ -241,54 +254,53 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
     center_lat = sum(all_lats) / len(all_lats)
     center_lon = sum(all_lons) / len(all_lons)
     
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    # ズームレベル調整 (全体の範囲に合わせて)
+    lat_span = max(all_lats) - min(all_lats)
+    lon_span = max(all_lons) - min(all_lons)
+    max_span = max(lat_span, lon_span)
+    zoom = 10
+    if max_span > 2.0: zoom = 8
+    elif max_span > 0.5: zoom = 10
+    elif max_span > 0.1: zoom = 12
+    else: zoom = 13
+
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom)
     
+    # 線路
     for segment in route_points_list:
         folium.PolyLine(
             locations=segment,
-            color="blue",
-            weight=5,
-            opacity=0.7
+            color="#0033FF", # 青
+            weight=6,
+            opacity=0.8
         ).add_to(m)
         
+    # マーカー
     for node in route_nodes:
         coord = station_coords.get(node)
         if not coord: continue
         
-        icon_color = "blue"
-        icon_type = "info-sign"
-        
         if node == dept_st:
-            icon_color = "green"
-            icon_type = "play"
+            folium.Marker(coord, popup=node, icon=folium.Icon(color="green", icon="play")).add_to(m)
         elif node == dest_st:
-            icon_color = "red"
-            icon_type = "stop"
+            folium.Marker(coord, popup=node, icon=folium.Icon(color="red", icon="stop")).add_to(m)
         elif node == via_st:
-            icon_color = "orange"
-            icon_type = "flag"
+            folium.Marker(coord, popup=node, icon=folium.Icon(color="orange", icon="flag")).add_to(m)
         else:
             folium.CircleMarker(
                 location=coord,
-                radius=4,
-                color="blue",
+                radius=3,
+                color="#0033FF",
                 fill=True,
                 fill_color="white",
+                fill_opacity=1,
                 tooltip=node
             ).add_to(m)
-            continue
-
-        folium.Marker(
-            location=coord,
-            popup=node,
-            tooltip=node,
-            icon=folium.Icon(color=icon_color, icon=icon_type)
-        ).add_to(m)
         
     return m
 
 # ==========================================
-# シミュレーションクラス
+# シミュレータ
 # ==========================================
 class TrainSim:
     def __init__(self, track, spec):
@@ -344,40 +356,24 @@ def sanitize_filename(name):
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 ---
+# ブックマークレット
 with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
     st.markdown("""
     ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
     このブックマークレットを使用できるのは「空想鉄道」「空想旧鉄」「空想地図」「空想別館」です。
     """)
-    
     st.markdown("#### 登録手順")
-    st.markdown("""
-    1. 下記のコードをすべてコピーしてください。
-    2. ブラウザのブックマークバーを右クリックし、「ページを追加」を選びます。
-    3. 名前に「データ取得」などと入力します。
-    4. URLの欄に、コピーしたコードを貼り付けて保存します。
-    """)
-    
+    st.markdown("1. 下記のコードをすべてコピーしてください。\n2. ブラウザのブックマークバーを右クリックし、「ページを追加」を選びます。\n3. URLの欄に、コピーしたコードを貼り付けて保存します。")
     bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     st.code(bookmarklet_code, language="javascript")
-    
     st.markdown("#### 使い方")
-    st.markdown("""
-    1. 各サイトの作品ページを開きます。
-    2. 登録したブックマークをクリックします。
-    3. 「成功」と表示されたら、この下の入力欄に **Ctrl+V (貼り付け)** してください。
-    """)
+    st.markdown("1. 作品ページを開きます。\n2. ブックマークをクリックします。\n3. 「成功」と出たら、下の入力欄に **Ctrl+V** してください。")
 
 st.divider()
 
-# --- データ入力 ---
+# データ入力
 st.subheader("データの入力")
-raw_text = st.text_area(
-    "作品データを貼り付けてください (Ctrl+V)",
-    height=150,
-    placeholder='ここに {"mapinfo": ... } から始まるデータを貼り付けます'
-)
+raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150)
 
 if raw_text:
     try:
@@ -387,43 +383,33 @@ if raw_text:
             if idx != -1: data = json.loads(raw_text[idx:])
             else: st.stop()
         
-        if isinstance(data.get('mapdata'), str):
-            map_data = json.loads(data['mapdata'])
-        else:
-            map_data = data
-            
+        if isinstance(data.get('mapdata'), str): map_data = json.loads(data['mapdata'])
+        else: map_data = data
         map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
         
-        # ネットワーク構築
         G, edge_details, station_coords, all_line_names, line_stations_dict = build_network(map_data)
         all_stations_list = sorted(list(G.nodes()))
         
         st.success(f"解析完了: {len(all_stations_list)}駅 / {len(all_line_names)}路線")
         
-        # --- 運転プラン ---
+        # 運転プラン
         st.subheader("運転プラン")
-        
         col1, col2 = st.columns([1, 1])
         
         with col1:
             st.markdown("#### ルート選択")
-            
-            # 出発
             col_d1, col_d2 = st.columns(2)
             with col_d1: dept_line = st.selectbox("出発路線", all_line_names, key="d_line")
             with col_d2: dept_st = st.selectbox("出発駅", line_stations_dict[dept_line], key="d_st")
             
-            # 優先・回避
             with st.expander("路線ごとの優先度設定", expanded=False):
                 avoid_lines = st.multiselect("避ける (コスト増)", all_line_names)
                 prioritize_lines = st.multiselect("優先する (コスト減)", all_line_names)
 
-            # 到着
             col_a1, col_a2 = st.columns(2)
             with col_a1: dest_line = st.selectbox("到着路線", all_line_names, key="a_line", index=len(all_line_names)-1)
             with col_a2: dest_st = st.selectbox("到着駅", line_stations_dict[dest_line], key="a_st", index=len(line_stations_dict[dest_line])-1)
             
-            # 経由
             use_via = st.checkbox("経由駅を指定", value=False)
             via_st = None
             if use_via:
@@ -433,15 +419,15 @@ if raw_text:
                     v_stats = line_stations_dict[via_line]
                     via_st = st.selectbox("経由駅", v_stats, key="v_st", index=min(len(v_stats)//2, len(v_stats)-1))
 
-            # --- 経路計算 ---
+            # 経路計算
             try:
                 G_calc = G.copy()
                 for u, v, k, d in G_calc.edges(keys=True, data=True):
                     l_name = d.get('line_name', '')
-                    base_weight = d['weight']
-                    if l_name in avoid_lines: d['weight'] = base_weight * 10.0
-                    elif l_name in prioritize_lines: d['weight'] = base_weight * 0.2
-                    else: d['weight'] = base_weight
+                    w = d['weight']
+                    if l_name in avoid_lines: w *= 10.0
+                    elif l_name in prioritize_lines: w *= 0.2
+                    d['weight'] = w
                 
                 if use_via and via_st:
                     p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
@@ -458,40 +444,29 @@ if raw_text:
                     u = full_route_nodes[i]
                     v = full_route_nodes[i+1]
                     key = tuple(sorted((u, v)))
-                    
                     candidates = edge_details.get(key, {})
                     best_line = None
                     min_cost = float('inf')
-                    
                     for l_name, info in candidates.items():
-                        cost = info['weight']
-                        if l_name in avoid_lines: cost *= 10.0
-                        elif l_name in prioritize_lines: cost *= 0.2
-                        
-                        if cost < min_cost:
-                            min_cost = cost
+                        c = info['weight']
+                        if l_name in avoid_lines: c *= 10.0
+                        elif l_name in prioritize_lines: c *= 0.2
+                        if c < min_cost:
+                            min_cost = c
                             best_line = l_name
                     
                     if best_line:
                         used_lines_set.add(best_line)
                         actual_dist += candidates[best_line]['weight']
-                        
                         pts = candidates[best_line]['points']
                         u_coord = station_coords[u]
                         d_start = hubeny_distance(pts[0][0], pts[0][1], u_coord[0], u_coord[1])
                         d_end = hubeny_distance(pts[-1][0], pts[-1][1], u_coord[0], u_coord[1])
-                        
-                        if d_end < d_start:
-                            map_geometry_list.append(pts[::-1])
-                        else:
-                            map_geometry_list.append(pts)
+                        if d_end < d_start: map_geometry_list.append(pts[::-1])
+                        else: map_geometry_list.append(pts)
                 
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
                 st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
-
-                st.markdown("#### ルートマップ")
-                map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
-                st_folium(map_obj, height=600, width="100%")
 
             except nx.NetworkXNoPath:
                 st.error("経路が見つかりません。")
@@ -500,56 +475,77 @@ if raw_text:
                 st.error(f"エラー: {e}")
                 st.stop()
 
-            st.markdown("#### 停車パターン")
-            
-            # 停車パターン用データフレームの初期化・更新
-            route_key = f"{dept_st}-{via_st}-{dest_st}-{str(avoid_lines)}-{str(prioritize_lines)}"
-            if 'stop_pattern_key' not in st.session_state or st.session_state['stop_pattern_key'] != route_key:
-                st.session_state['stop_pattern_key'] = route_key
-                # 初期状態：全駅停車
-                initial_data = {
-                    "停車": [True] * len(full_route_nodes),
-                    "駅名": [f"{i+1}. {name}" for i, name in enumerate(full_route_nodes)],
-                    "original_index": list(range(len(full_route_nodes)))
-                }
-                st.session_state['stop_df'] = pd.DataFrame(initial_data)
-
-            # 一括操作ボタン
-            btn_col1, btn_col2 = st.columns(2)
-            if btn_col1.button("全選択"):
-                st.session_state['stop_df']['停車'] = True
-            if btn_col2.button("全解除"):
-                st.session_state['stop_df']['停車'] = False
-
-            # データエディタ (テーブル形式でコンパクトに)
-            edited_df = st.data_editor(
-                st.session_state['stop_df'],
-                column_config={
-                    "停車": st.column_config.CheckboxColumn("停車", width="small"),
-                    "駅名": st.column_config.TextColumn("駅名", disabled=True),
-                    "original_index": None
-                },
-                hide_index=True,
-                height=300,
-                key="stop_editor"
-            )
-            
-            # 選択されたインデックスを抽出
-            selected_indices = edited_df[edited_df["停車"]]["original_index"].tolist()
-
         with col2:
             st.markdown("#### 車両・種別")
             vehicle_name = st.selectbox("使用車両", list(VEHICLE_DB.keys()))
             spec = VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
-            
             train_type = st.text_input("種別名", value="普通")
             dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
 
-        # --- 実行 ---
+        # 地図表示 (カラム外・全幅)
+        st.subheader("🗺️ ルートマップ")
+        map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
+        if map_obj:
+            st_folium(map_obj, height=600, use_container_width=True)
+
+        # 停車駅設定 (Data Editorでコンパクトに)
+        st.subheader("🚉 停車パターン設定")
+        
+        # データフレーム作成
+        # デフォルトは全駅停車(True)
+        if "stops_df" not in st.session_state or len(st.session_state["stops_df"]) != len(full_route_nodes):
+             st.session_state["stops_df"] = pd.DataFrame({
+                "停車": [True] * len(full_route_nodes),
+                "駅名": full_route_nodes
+            })
+        
+        # リセットやルート変更検知が必要だが、簡易的に毎回再生成しないようにセッション管理
+        # ルートが変わったかを簡易判定
+        current_route_sig = "_".join(full_route_nodes)
+        if "last_route_sig" not in st.session_state or st.session_state["last_route_sig"] != current_route_sig:
+            st.session_state["stops_df"] = pd.DataFrame({
+                "停車": [True] * len(full_route_nodes),
+                "駅名": full_route_nodes
+            })
+            st.session_state["last_route_sig"] = current_route_sig
+
+        # 一括操作ボタン
+        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        if col_btn1.button("全選択"):
+            st.session_state["stops_df"]["停車"] = True
+        if col_btn2.button("全解除"):
+            st.session_state["stops_df"]["停車"] = False
+            # 始発・終着は強制ON
+            st.session_state["stops_df"].at[0, "停車"] = True
+            st.session_state["stops_df"].at[len(full_route_nodes)-1, "停車"] = True
+
+        # エディタ表示
+        edited_df = st.data_editor(
+            st.session_state["stops_df"],
+            column_config={
+                "停車": st.column_config.CheckboxColumn(
+                    "停車",
+                    help="チェックすると停車します",
+                    default=True,
+                ),
+                "駅名": st.column_config.TextColumn(
+                    "駅名",
+                    disabled=True
+                )
+            },
+            hide_index=False,
+            use_container_width=True,
+            height=300
+        )
+        
+        # 編集結果を反映
+        selected_indices = edited_df[edited_df["停車"]].index.tolist()
+
+        # 実行
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
-            # 始発と終点は強制追加
+            # 始発・終着強制チェック
             if 0 not in selected_indices: selected_indices.append(0)
             last_idx = len(full_route_nodes) - 1
             if last_idx not in selected_indices: selected_indices.append(last_idx)
@@ -559,7 +555,7 @@ if raw_text:
                 st.error("停車駅が足りません")
             else:
                 st.divider()
-                st.subheader(f"{dept_st} 発 {dest_st} 行")
+                st.subheader(f"🏁 {dept_st} 発 {dest_st} 行")
                 
                 results = []
                 progress_bar = st.progress(0)
@@ -583,11 +579,11 @@ if raw_text:
                         best_line = None
                         min_cost = float('inf')
                         for l_name, info in candidates.items():
-                            cost = info['weight']
-                            if l_name in avoid_lines: cost *= 10.0
-                            elif l_name in prioritize_lines: cost *= 0.2
-                            if cost < min_cost:
-                                min_cost = cost
+                            c = info['weight']
+                            if l_name in avoid_lines: c *= 10.0
+                            elif l_name in prioritize_lines: c *= 0.2
+                            if c < min_cost:
+                                min_cost = c
                                 best_line = l_name
                         
                         if not best_line: continue
@@ -598,7 +594,6 @@ if raw_text:
                         d_end = hubeny_distance(pts[-1][0], pts[-1][1], u_coord[0], u_coord[1])
                         
                         if d_end < d_start: pts = pts[::-1]
-                        
                         if combined_points: combined_points.extend(pts[1:])
                         else: combined_points.extend(pts)
                     
