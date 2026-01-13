@@ -14,7 +14,6 @@ import core_logic
 # ==========================================
 st.set_page_config(
     page_title="架空鉄道 所要時間シミュレータ",
-    page_icon="🚆",
     layout="wide"
 )
 
@@ -335,8 +334,16 @@ if raw_text:
                     st.dataframe(df_disp, use_container_width=True)
                     
                     output = BytesIO()
+                    # 【修正】シート名が空の場合の対策処理を追加
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_disp.to_excel(writer, sheet_name=core_logic.sanitize_filename(train_type), index=False)
+                        # シート名のサニタイズ
+                        sheet_name = core_logic.sanitize_filename(train_type)
+                        # 空文字またはNoneの場合はデフォルト名を設定
+                        if not sheet_name:
+                            sheet_name = "Sheet1"
+                        
+                        # シート名は31文字以内に制限
+                        df_disp.to_excel(writer, sheet_name=sheet_name[:30], index=False)
                     
                     st.download_button(
                         "Excelファイルをダウンロード",
