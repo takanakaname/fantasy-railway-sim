@@ -135,15 +135,13 @@ def build_network(map_data):
     lines = map_data.get('line', [])
     station_id_map = {} 
     station_coords = {}
-    all_line_names = [] # リストに変更して順序を保持
+    all_line_names = [] # 順序保持のためにリストを使用
     line_stations_dict = {}
 
     # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
-        
-        # 登場順にリストに追加（重複回避）
         if line_name not in all_line_names:
             all_line_names.append(line_name)
         
@@ -476,6 +474,8 @@ if raw_text:
         col1, col2 = st.columns([1, 1])
         
         with col1:
+            st.markdown("#### ルート選択")
+            
             # 出発駅
             dept_st = station_selector_widget(
                 "出発駅", all_stations_list, line_stations_dict, all_line_names, "dept", default_idx=0
@@ -517,7 +517,7 @@ if raw_text:
                     full_route_nodes = nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
                 
                 actual_dist = 0
-                used_lines_set = set()
+                used_lines_list = []
                 map_geometry_list = []
                 
                 for i in range(len(full_route_nodes)-1):
@@ -539,7 +539,10 @@ if raw_text:
                             best_line = l_name
                     
                     if best_line:
-                        used_lines_set.add(best_line)
+                        # 経由路線のリスト登録（重複連続の排除）
+                        if not used_lines_list or used_lines_list[-1] != best_line:
+                            used_lines_list.append(best_line)
+                            
                         actual_dist += candidates[best_line]['weight']
                         
                         pts = candidates[best_line]['points']
@@ -553,7 +556,7 @@ if raw_text:
                             map_geometry_list.append(pts)
                 
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
-                st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
+                st.caption(f"経由路線: {', '.join(used_lines_list)}")
 
                 # --- 地図表示 ---
                 st.markdown("#### ルートマップ")
@@ -590,7 +593,7 @@ if raw_text:
             st.info(f"性能: {spec['desc']}")
             
             train_type = st.text_input("種別名", value="普通")
-            dwell_time = st.slider("停車時間(秒)", 0, 120, 30)
+            dwell_time = st.slider("停車時間(秒)", 0, 120, 20)
 
         # --- 実行 ---
         st.write("")
