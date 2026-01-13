@@ -41,14 +41,13 @@ def station_selector_widget(label, all_stations, line_stations_dict, all_lines, 
         return st.selectbox(f"{label}: 駅名", all_stations, index=idx, key=f"{key_prefix}_st_all")
 
 # ==========================================
-# サイドバー (情報・規約)
+# サイドバー
 # ==========================================
 with st.sidebar:
     st.header("アプリ情報")
     st.markdown("開発者: **高那**")
     st.markdown("[X (Twitter): @takanakaname](https://x.com/takanakaname)")
     st.divider()
-    
     st.markdown("### 免責事項・規約")
     with st.expander("利用規約・クレジットを確認"):
         st.markdown("""
@@ -58,11 +57,11 @@ with st.sidebar:
         
         **2. データの取り扱い**
         
-        入力された作品データは、ブラウザ上および一時的なメモリ内でのみ処理されます。サーバーへの保存や、制作者によるデータの収集は行っていません。
+        入力された作品データは、ブラウザ上および一時的なメモリ内でのみ処理されます。サーバーへの保存は行いません。
         
         **3. 免責**
         
-        本ツールの計算結果（所要時間・距離など）の正確性は保証されません。本ツールを使用したことによる損害やトラブルについて、制作者は一切の責任を負いません。
+        本ツールの計算結果の正確性は保証されません。本ツールを使用したことによる損害について責任を負いません。
         
         **4. 地図データ出典**
         
@@ -75,37 +74,21 @@ with st.sidebar:
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 ---
+# ブックマークレット
 with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
-    st.markdown("""
-    ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
-    
-    このブックマークレットを使用できるのは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**です。
-    """)
-    
+    st.markdown("ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。")
     st.markdown("#### 1. 登録手順")
-    st.markdown("""
-    1.  まず、**下の黒いボックス内のコードをすべてコピー**してください。
-    2.  ブラウザのブックマークバーなどで「右クリック」→「ページを追加（ブックマークを追加）」を選択します。
-    3.  名前を「**空想データ取得**」など分かりやすい名前にします。
-    4.  URLの欄に、**さきほどコピーしたコードを貼り付け**て保存します。
-    """)
-    
+    st.markdown("以下のコードをブックマークのURL欄に保存してください。")
     bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     st.code(bookmarklet_code, language="javascript")
-    
     st.markdown("#### 2. 使い方")
-    st.markdown("""
-    1.  空想鉄道（空想別館など）の**作品ページ**を開きます。
-    2.  登録した**ブックマークをクリック**します。
-    3.  画面に「成功」と表示されたら、このシミュレータの「データの入力」欄に戻り、**Ctrl+V (貼り付け)** してください。
-    """)
+    st.markdown("作品ページでブックマークをクリックし、成功したら下の欄に貼り付けてください。")
 
 st.divider()
 
 # データ入力
 st.subheader("データの入力")
-raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150, placeholder='{"mapinfo": ... } から始まるJSONデータ')
+raw_text = st.text_area("作品データを貼り付けてください (Ctrl+V)", height=150, placeholder='{"mapinfo": ... }')
 
 if raw_text:
     try:
@@ -152,7 +135,7 @@ if raw_text:
                 st.error("経路が見つかりません。")
                 st.stop()
             
-            # 経路情報の復元
+            # 経路復元
             actual_dist = 0
             used_lines_list = []
             map_geometry_list = []
@@ -175,10 +158,8 @@ if raw_text:
                 if best_line:
                     if not used_lines_list or used_lines_list[-1] != best_line:
                         used_lines_list.append(best_line)
-                    
                     actual_dist += candidates[best_line]['weight']
                     pts = candidates[best_line]['points']
-                    
                     u_c = station_coords[u]
                     d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                     d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
@@ -193,47 +174,50 @@ if raw_text:
             map_obj = core_logic.create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
             st_folium(map_obj, height=600, use_container_width=True)
 
-            # 停車駅設定 (個別停車時間対応)
+            # 停車パターン設定 (高速化: Data Editorを使用)
             st.markdown("#### 停車パターン設定")
             
-            # グローバルな基本時間設定
-            global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5, help="これから下のリストで選択する駅のデフォルト停車時間です。")
+            global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5)
             
-            c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("全選択"):
-                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = True
-            if c_btn2.button("全解除"):
-                for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = False
-
-            st.markdown("※ チェックを入れると、その駅の停車時間を個別に変更できます。")
+            # データフレームの作成
+            # keyにルート情報を含めることで、ルート変更時にリセットされるようにする
+            route_hash = str(full_route_nodes) + str(global_dwell_time)
             
-            # 各駅の停車時間を格納する辞書 {route_index: seconds}
-            station_dwell_times = {}
-            selected_indices = []
-
-            with st.container(height=400):
-                for i, s_name in enumerate(full_route_nodes):
-                    col_chk, col_time = st.columns([0.6, 0.4])
-                    
-                    with col_chk:
-                        key_chk = f"chk_{i}_{s_name}"
-                        if key_chk not in st.session_state: st.session_state[key_chk] = True
-                        is_checked = st.checkbox(f"{i+1}. {s_name}", key=key_chk)
-                        
-                    with col_time:
-                        if is_checked:
-                            selected_indices.append(i)
-                            # 個別停車時間の入力 (デフォルトは基本時間)
-                            # 終点は停車時間0とするのが一般的だが、折り返し準備等もあるため入力可能にする
-                            dt = st.number_input(
-                                "秒", 
-                                value=global_dwell_time, 
-                                min_value=0, 
-                                step=5, 
-                                key=f"dwell_{i}_{s_name}", 
-                                label_visibility="collapsed"
-                            )
-                            station_dwell_times[i] = dt
+            initial_data = []
+            for i, s_name in enumerate(full_route_nodes):
+                # デフォルトは全駅停車
+                initial_data.append({
+                    "No": i+1,
+                    "停車": True,
+                    "駅名": s_name,
+                    "停車時間(秒)": global_dwell_time,
+                    "original_idx": i
+                })
+            
+            df_stops = pd.DataFrame(initial_data)
+            
+            st.markdown("以下の表で停車有無と時間を調整できます。")
+            edited_df = st.data_editor(
+                df_stops,
+                column_config={
+                    "No": st.column_config.NumberColumn(width="small"),
+                    "停車": st.column_config.CheckboxColumn(width="small"),
+                    "駅名": st.column_config.TextColumn(width="medium", disabled=True),
+                    "停車時間(秒)": st.column_config.NumberColumn(width="small", min_value=0, step=5),
+                    "original_idx": None # 非表示
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=300,
+                key=f"editor_{route_hash}"
+            )
+            
+            # 編集結果の抽出
+            # 停車フラグがTrueの行だけ抽出し、インデックスと時間を取得
+            stops_data = edited_df[edited_df["停車"] == True]
+            selected_indices = stops_data["original_idx"].tolist()
+            # 辞書化 {original_idx: dwell_time}
+            station_dwell_times = dict(zip(stops_data["original_idx"], stops_data["停車時間(秒)"]))
 
         with col2:
             st.markdown("#### 車両・種別")
@@ -246,10 +230,13 @@ if raw_text:
         # 実行
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
+            # 始発と終点は強制的に停車リストに加える
             if 0 not in selected_indices: selected_indices.append(0)
             last_idx = len(full_route_nodes) - 1
             if last_idx not in selected_indices: selected_indices.append(last_idx)
-            selected_indices.sort()
+            
+            # ソートして重複排除
+            selected_indices = sorted(list(set(selected_indices)))
             
             if len(selected_indices) < 2:
                 st.error("停車駅が足りません")
@@ -267,7 +254,6 @@ if raw_text:
                     s_start = full_route_nodes[idx_start]
                     s_end = full_route_nodes[idx_end]
                     
-                    # 区間結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
@@ -292,34 +278,33 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
-                            
-                            if combined_points: combined_points.extend(pts[1:])
-                            else: combined_points.extend(pts)
+                            combined_points.extend(pts[1:] if combined_points else pts)
                     
-                    # 物理シミュレーション
                     track = core_logic.resample_and_analyze(combined_points, spec)
                     if track:
                         sim = core_logic.TrainSim(track, spec)
                         run_sec = sim.run()
                         
-                        # 停車時間の決定 (到着駅の個別設定を参照)
-                        # 最後の区間の到着駅(終点)は停車時間を加算しない、または0とする
-                        if i == len(selected_indices) - 2:
-                            cur_dwell = 0
-                        else:
-                            # 辞書から到着駅の停車時間を取得 (デフォルト20秒)
-                            cur_dwell = station_dwell_times.get(idx_end, 20)
+                        # 最後の区間(i == len-2)なら終点到着なので停車時間は0扱いで計算してもよいが、
+                        # 到着時刻という意味では走行時間だけで良い。
+                        # ここでは「その駅での停車時間」を表示用と計算用に分ける
                         
-                        total_leg = run_sec + cur_dwell
+                        # 到着駅の停車設定を取得 (デフォルトはグローバル設定値)
+                        next_dwell = station_dwell_times.get(idx_end, global_dwell_time)
+                        
+                        # 終着駅の場合は、運行上の所要時間には停車時間を含めないのが一般的
+                        calc_dwell = 0 if (i == len(selected_indices) - 2) else next_dwell
+                        
+                        total_leg = run_sec + calc_dwell
                         dist_km = track[-1]['dist'] / 1000.0
                         
                         results.append({
                             '出発': s_start, '到着': s_end,
                             '距離(km)': round(dist_km, 2),
                             '走行時間': core_logic.format_time(run_sec),
-                            '停車時間': f"{cur_dwell}秒",
+                            '停車時間': f"{next_dwell}秒" if i != len(selected_indices) - 2 else "到着", # 表示用
                             '計': core_logic.format_time(total_leg),
-                            '_run': run_sec, '_dwell': cur_dwell
+                            '_run': run_sec, '_dwell': calc_dwell
                         })
 
                 progress_bar.progress(100)
