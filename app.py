@@ -277,7 +277,7 @@ if raw_text:
             spec = config.VEHICLE_DB[vehicle_name]
             st.info(f"性能: {spec['desc']}")
             
-            train_type = st.text_input("種別名", value="普通")
+            
 
         # --- 実行 ---
         st.write("")
