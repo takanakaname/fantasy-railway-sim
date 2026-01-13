@@ -3,9 +3,6 @@ import streamlit as st
 import json
 import pandas as pd
 from streamlit_folium import st_folium
-from io import BytesIO
-
-# モジュール読み込み
 import config
 import core_logic
 
@@ -14,7 +11,6 @@ import core_logic
 # ==========================================
 st.set_page_config(
     page_title="架空鉄道 所要時間シミュレータ",
-    page_icon="🚆",
     layout="wide"
 )
 
@@ -131,6 +127,12 @@ if raw_text:
         st.subheader("運転プラン")
         col1, col2 = st.columns([1, 1])
         
+        # 変数の初期化
+        full_route_nodes = []
+        map_obj = None
+        edge_details_subset = {} # 経路上のエッジ情報
+        
+        # --- 左カラム: ルート選択 ---
         with col1:
             st.markdown("#### ルート選択")
             dept_st = station_selector_widget("出発駅", all_stations_list, line_stations_dict, all_line_names, "dept", 0)
@@ -146,14 +148,15 @@ if raw_text:
             if use_via:
                 via_st = station_selector_widget("経由駅", all_stations_list, line_stations_dict, all_line_names, "via", 0)
 
-            # 経路計算
+        # --- 経路計算処理 ---
+        try:
             full_route_nodes = core_logic.find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_lines)
             
             if not full_route_nodes:
                 st.error("経路が見つかりません。")
                 st.stop()
             
-            # 経路情報の復元
+            # 経路情報の復元と地図データの準備
             actual_dist = 0
             used_lines_list = []
             map_geometry_list = []
@@ -186,21 +189,36 @@ if raw_text:
                     if d_e < d_s: map_geometry_list.append(pts[::-1])
                     else: map_geometry_list.append(pts)
 
-            st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
-            st.caption(f"経由路線: {', '.join(used_lines_list)}")
-
-            # 地図表示
-            st.markdown("#### ルートマップ")
+            # 地図オブジェクト作成
             map_obj = core_logic.create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
-            st_folium(map_obj, height=600, use_container_width=True)
 
-            # 停車駅設定 (高速化: データエディター使用)
+            with col1:
+                st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
+                st.caption(f"経由路線: {', '.join(used_lines_list)}")
+
+        except Exception as e:
+            st.error(f"経路計算エラー: {e}")
+            st.stop()
+
+        # --- 右カラム: 地図表示 ---
+        with col2:
+            st.markdown("#### ルートマップ")
+            if map_obj:
+                st_folium(map_obj, height=500, use_container_width=True)
+            else:
+                st.write("地図データがありません")
+
+        # --- 左カラム: 停車パターン ---
+        station_dwell_times = {}
+        selected_indices = []
+        
+        with col1:
             st.markdown("#### 停車パターン設定")
             
-            # グローバルな基本時間設定
-            global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5, help="初期値として設定される時間です。")
+            # グローバル設定
+            global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5)
             
-            # データフレームの作成
+            # データエディター用データ
             df_stops = pd.DataFrame({
                 "index": range(len(full_route_nodes)),
                 "駅名": full_route_nodes,
@@ -208,7 +226,6 @@ if raw_text:
                 "停車時間(秒)": [global_dwell_time] * len(full_route_nodes)
             })
             
-            # データエディター
             edited_df = st.data_editor(
                 df_stops,
                 column_config={
@@ -219,14 +236,14 @@ if raw_text:
                 },
                 hide_index=True,
                 use_container_width=True,
-                height=300
+                height=400
             )
             
-            # エディターの結果を抽出
             selected_rows = edited_df[edited_df["停車"] == True]
             selected_indices = selected_rows["index"].tolist()
             station_dwell_times = dict(zip(selected_rows["index"], selected_rows["停車時間(秒)"]))
 
+        # --- 右カラム: 車両設定 ---
         with col2:
             st.markdown("#### 車両・種別")
             vehicle_name = st.selectbox("使用車両", list(config.VEHICLE_DB.keys()))
@@ -235,7 +252,7 @@ if raw_text:
             
             train_type = st.text_input("種別名", value="普通")
 
-        # 実行
+        # --- 実行 ---
         st.write("")
         if st.button("シミュレーション実行", type="primary", use_container_width=True):
             if 0 not in selected_indices: selected_indices.append(0)
@@ -284,6 +301,7 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
+                            
                             combined_points.extend(pts[1:] if combined_points else pts)
                     
                     # 物理シミュレーション
@@ -292,7 +310,6 @@ if raw_text:
                         sim = core_logic.TrainSim(track, spec)
                         run_sec = sim.run()
                         
-                        # 停車時間の決定
                         if i == len(selected_indices) - 2:
                             cur_dwell = 0
                         else:
@@ -330,25 +347,6 @@ if raw_text:
                     df_disp = df_disp[['出発', '到着', '距離(km)', '走行時間', '停車時間', '計']]
                     
                     st.dataframe(df_disp, use_container_width=True)
-                    
-                    # Excel保存 (シート名エラー対策済み)
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        # 種別名が空だとエラーになるため、空の場合は"Sheet1"にする
-                        sheet_name = core_logic.sanitize_filename(train_type)
-                        if not sheet_name:
-                            sheet_name = "Sheet1"
-                        
-                        df_disp.to_excel(writer, sheet_name=sheet_name, index=False)
-                    
-                    st.download_button(
-                        "Excelファイルをダウンロード",
-                        data=output.getvalue(),
-                        file_name=f"解析_{core_logic.sanitize_filename(dept_st)}-{core_logic.sanitize_filename(dest_st)}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                else:
-                    st.warning("シミュレーション結果が0件でした。駅間の距離が短すぎるか、経路データに問題がある可能性があります。")
 
     except Exception as e:
         st.error(f"エラー: {e}")
