@@ -135,14 +135,17 @@ def build_network(map_data):
     lines = map_data.get('line', [])
     station_id_map = {} 
     station_coords = {}
-    all_line_names = set()
+    all_line_names = [] # リストに変更して順序を保持
     line_stations_dict = {}
 
     # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
-        all_line_names.add(line_name)
+        
+        # 登場順にリストに追加（重複回避）
+        if line_name not in all_line_names:
+            all_line_names.append(line_name)
         
         raw_points = line.get('point', [])
         
@@ -228,7 +231,7 @@ def build_network(map_data):
                 'line_name': line_name
             }
 
-    return G, edge_details, station_coords, sorted(list(all_line_names)), line_stations_dict
+    return G, edge_details, station_coords, all_line_names, line_stations_dict
 
 # ==========================================
 # 地図描画ロジック
@@ -473,8 +476,6 @@ if raw_text:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.markdown("#### ルート選択")
-            
             # 出発駅
             dept_st = station_selector_widget(
                 "出発駅", all_stations_list, line_stations_dict, all_line_names, "dept", default_idx=0
