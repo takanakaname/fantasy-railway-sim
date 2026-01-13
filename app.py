@@ -12,7 +12,11 @@ from io import BytesIO
 # ==========================================
 # 設定・定数
 # ==========================================
-st.set_page_config(page_title="架空鉄道 所要時間シミュレータ", layout="wide")
+st.set_page_config(
+    page_title="架空鉄道 所要時間シミュレータ",
+    page_icon="🚆",
+    layout="wide"
+)
 
 # 同一駅とみなす最大距離 (メートル)
 SAME_STATION_THRESHOLD = 1000.0
@@ -108,6 +112,7 @@ def resample_and_analyze(points, spec, interval=25.0):
     
     track = []
     w = 3 
+    
     for i in range(len(new_dists)):
         if i < w or i >= len(new_dists) - w:
             R = 9999.0
@@ -290,12 +295,11 @@ def create_route_map(route_points_list, route_nodes, station_coords, dept_st, de
     return m
 
 # ==========================================
-# UIコンポーネント: 駅選択ウィジェット
+# UIコンポーネント
 # ==========================================
 def station_selector_widget(label, all_stations, line_stations_dict, all_lines, key_prefix, default_idx=0):
     st.markdown(f"#### {label}")
     
-    # 選択モードの切り替え (横並びラジオボタン)
     mode = st.radio(
         f"{label}の選択方法",
         ["路線から絞り込み", "全駅から検索"],
@@ -312,13 +316,11 @@ def station_selector_widget(label, all_stations, line_stations_dict, all_lines, 
             line = st.selectbox(f"{label}: 路線", all_lines, key=f"{key_prefix}_line")
         with c2:
             stations = line_stations_dict[line]
-            # デフォルト値の計算
             idx = 0
             if default_idx == -1: idx = len(stations) - 1
             if idx >= len(stations): idx = 0
             selected_station = st.selectbox(f"{label}: 駅", stations, index=idx, key=f"{key_prefix}_st_sub")
     else:
-        # 全駅リストから検索
         idx = default_idx
         if idx == -1: idx = len(all_stations) - 1
         if idx >= len(all_stations): idx = 0
@@ -380,6 +382,32 @@ def sanitize_filename(name):
 # ==========================================
 # アプリUI
 # ==========================================
+
+# サイドバー: 開発者情報・規約
+with st.sidebar:
+    st.header("ℹ️ アプリ情報")
+    st.markdown("開発者: **高那**")
+    st.markdown("[X (Twitter): @takanakaname](https://x.com/takanakaname)")
+    
+    st.divider()
+    
+    st.markdown("### ⚠️ 免責事項・規約")
+    with st.expander("利用規約・クレジットを確認"):
+        st.markdown("""
+        **1. 非公式ツール**
+        本ツールは「空想鉄道」シリーズ等の公式運営とは一切関係のない、個人のファンメイドツールです。
+        
+        **2. データの取り扱い**
+        入力された作品データは、ブラウザ上および一時的なメモリ内でのみ処理されます。サーバーへの保存や、制作者によるデータの収集は行っていません。
+        
+        **3. 免責**
+        本ツールの計算結果（所要時間・距離など）の正確性は保証されません。本ツールを使用したことによる損害やトラブルについて、制作者は一切の責任を負いません。
+        
+        **4. 地図データ出典**
+        Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
+        """)
+
+# メインコンテンツ
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
@@ -521,10 +549,9 @@ if raw_text:
                 st.info(f"ルート確定: {len(full_route_nodes)}駅 (実距離 約{actual_dist/1000:.1f}km)")
                 st.caption(f"経由路線: {', '.join(list(used_lines_set))}")
 
-                # --- 地図表示 (サイズ変更) ---
+                # --- 地図表示 ---
                 st.markdown("#### ルートマップ")
                 map_obj = create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
-                # 横幅を最大(use_container_width=True)にし、高さを600pxに拡大
                 st_folium(map_obj, height=600, use_container_width=True)
 
             except nx.NetworkXNoPath:
