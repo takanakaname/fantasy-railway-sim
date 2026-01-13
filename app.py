@@ -14,6 +14,7 @@ import core_logic
 # ==========================================
 st.set_page_config(
     page_title="架空鉄道 所要時間シミュレータ",
+    page_icon="🚆",
     layout="wide"
 )
 
@@ -207,12 +208,12 @@ if raw_text:
                 "停車時間(秒)": [global_dwell_time] * len(full_route_nodes)
             })
             
-            # データエディターの表示 (ここで一括編集させることで動作を軽量化)
+            # データエディター
             edited_df = st.data_editor(
                 df_stops,
                 column_config={
-                    "index": None, # インデックスは隠す
-                    "駅名": st.column_config.TextColumn("駅名", disabled=True), # 駅名は編集不可
+                    "index": None,
+                    "駅名": st.column_config.TextColumn("駅名", disabled=True),
                     "停車": st.column_config.CheckboxColumn("停車", default=True),
                     "停車時間(秒)": st.column_config.NumberColumn("停車時間(秒)", min_value=0, step=5)
                 },
@@ -224,7 +225,6 @@ if raw_text:
             # エディターの結果を抽出
             selected_rows = edited_df[edited_df["停車"] == True]
             selected_indices = selected_rows["index"].tolist()
-            # 辞書化: {index: dwell_time}
             station_dwell_times = dict(zip(selected_rows["index"], selected_rows["停車時間(秒)"]))
 
         with col2:
@@ -284,9 +284,7 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
-                            
-                            if combined_points: combined_points.extend(pts[1:])
-                            else: combined_points.extend(pts)
+                            combined_points.extend(pts[1:] if combined_points else pts)
                     
                     # 物理シミュレーション
                     track = core_logic.resample_and_analyze(combined_points, spec)
@@ -333,17 +331,15 @@ if raw_text:
                     
                     st.dataframe(df_disp, use_container_width=True)
                     
+                    # Excel保存 (シート名エラー対策済み)
                     output = BytesIO()
-                    # 【修正】シート名が空の場合の対策処理を追加
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        # シート名のサニタイズ
+                        # 種別名が空だとエラーになるため、空の場合は"Sheet1"にする
                         sheet_name = core_logic.sanitize_filename(train_type)
-                        # 空文字またはNoneの場合はデフォルト名を設定
                         if not sheet_name:
                             sheet_name = "Sheet1"
                         
-                        # シート名は31文字以内に制限
-                        df_disp.to_excel(writer, sheet_name=sheet_name[:30], index=False)
+                        df_disp.to_excel(writer, sheet_name=sheet_name, index=False)
                     
                     st.download_button(
                         "Excelファイルをダウンロード",
@@ -351,6 +347,8 @@ if raw_text:
                         file_name=f"解析_{core_logic.sanitize_filename(dept_st)}-{core_logic.sanitize_filename(dest_st)}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+                else:
+                    st.warning("シミュレーション結果が0件でした。駅間の距離が短すぎるか、経路データに問題がある可能性があります。")
 
     except Exception as e:
         st.error(f"エラー: {e}")
