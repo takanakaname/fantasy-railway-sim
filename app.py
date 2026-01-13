@@ -14,7 +14,6 @@ import core_logic
 # ==========================================
 st.set_page_config(
     page_title="架空鉄道 所要時間シミュレータ",
-    page_icon="🚆",
     layout="wide"
 )
 
@@ -45,14 +44,13 @@ def station_selector_widget(label, all_stations, line_stations_dict, all_lines, 
 # サイドバー (情報・規約)
 # ==========================================
 with st.sidebar:
-    st.header("ℹ️ アプリ情報")
+    st.header("アプリ情報")
     st.markdown("開発者: **高那**")
     st.markdown("[X (Twitter): @takanakaname](https://x.com/takanakaname)")
     st.divider()
     
-    st.markdown("### ⚠️ 免責事項・規約")
+    st.markdown("### 免責事項・規約")
     with st.expander("利用規約・クレジットを確認"):
-        # 改行が反映されるように空行を挟んで記述
         st.markdown("""
         **1. 非公式ツール**
         
@@ -78,7 +76,7 @@ st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
 # --- ブックマークレット解説 ---
-with st.expander("📲 作品データの自動取得ブックマークレット (使い方)", expanded=False):
+with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
     st.markdown("""
     ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
     
@@ -122,7 +120,7 @@ if raw_text:
         
         map_title = data.get('mapinfo', {}).get('name', '空想鉄道')
         
-        # ネットワーク構築 (Core Logic呼び出し)
+        # ネットワーク構築
         G, edge_details, station_coords, all_line_names, line_stations_dict = core_logic.build_network(map_data)
         all_stations_list = sorted(list(G.nodes()))
         
@@ -195,21 +193,47 @@ if raw_text:
             map_obj = core_logic.create_route_map(map_geometry_list, full_route_nodes, station_coords, dept_st, dest_st, via_st)
             st_folium(map_obj, height=600, use_container_width=True)
 
-            # 停車駅設定
-            st.markdown("#### 停車パターン")
+            # 停車駅設定 (個別停車時間対応)
+            st.markdown("#### 停車パターン設定")
+            
+            # グローバルな基本時間設定
+            global_dwell_time = st.number_input("基本停車時間 (秒)", value=20, step=5, help="これから下のリストで選択する駅のデフォルト停車時間です。")
+            
             c_btn1, c_btn2 = st.columns(2)
             if c_btn1.button("全選択"):
                 for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = True
             if c_btn2.button("全解除"):
                 for i, s in enumerate(full_route_nodes): st.session_state[f"chk_{i}_{s}"] = False
 
-            with st.container(height=300):
-                selected_indices = []
+            st.markdown("※ チェックを入れると、その駅の停車時間を個別に変更できます。")
+            
+            # 各駅の停車時間を格納する辞書 {route_index: seconds}
+            station_dwell_times = {}
+            selected_indices = []
+
+            with st.container(height=400):
                 for i, s_name in enumerate(full_route_nodes):
-                    key = f"chk_{i}_{s_name}"
-                    if key not in st.session_state: st.session_state[key] = True
-                    if st.checkbox(f"{i+1}. {s_name}", key=key):
-                        selected_indices.append(i)
+                    col_chk, col_time = st.columns([0.6, 0.4])
+                    
+                    with col_chk:
+                        key_chk = f"chk_{i}_{s_name}"
+                        if key_chk not in st.session_state: st.session_state[key_chk] = True
+                        is_checked = st.checkbox(f"{i+1}. {s_name}", key=key_chk)
+                        
+                    with col_time:
+                        if is_checked:
+                            selected_indices.append(i)
+                            # 個別停車時間の入力 (デフォルトは基本時間)
+                            # 終点は停車時間0とするのが一般的だが、折り返し準備等もあるため入力可能にする
+                            dt = st.number_input(
+                                "秒", 
+                                value=global_dwell_time, 
+                                min_value=0, 
+                                step=5, 
+                                key=f"dwell_{i}_{s_name}", 
+                                label_visibility="collapsed"
+                            )
+                            station_dwell_times[i] = dt
 
         with col2:
             st.markdown("#### 車両・種別")
@@ -218,7 +242,6 @@ if raw_text:
             st.info(f"性能: {spec['desc']}")
             
             train_type = st.text_input("種別名", value="普通")
-            dwell_time = st.slider("停車時間(秒)", 0, 120, 20)
 
         # 実行
         st.write("")
@@ -244,6 +267,7 @@ if raw_text:
                     s_start = full_route_nodes[idx_start]
                     s_end = full_route_nodes[idx_end]
                     
+                    # 区間結合
                     segment_nodes = full_route_nodes[idx_start : idx_end + 1]
                     combined_points = []
                     
@@ -268,13 +292,24 @@ if raw_text:
                             d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                             d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
                             if d_e < d_s: pts = pts[::-1]
-                            combined_points.extend(pts[1:] if combined_points else pts)
+                            
+                            if combined_points: combined_points.extend(pts[1:])
+                            else: combined_points.extend(pts)
                     
+                    # 物理シミュレーション
                     track = core_logic.resample_and_analyze(combined_points, spec)
                     if track:
                         sim = core_logic.TrainSim(track, spec)
                         run_sec = sim.run()
-                        cur_dwell = 0 if (i == len(selected_indices) - 2) else dwell_time
+                        
+                        # 停車時間の決定 (到着駅の個別設定を参照)
+                        # 最後の区間の到着駅(終点)は停車時間を加算しない、または0とする
+                        if i == len(selected_indices) - 2:
+                            cur_dwell = 0
+                        else:
+                            # 辞書から到着駅の停車時間を取得 (デフォルト20秒)
+                            cur_dwell = station_dwell_times.get(idx_end, 20)
+                        
                         total_leg = run_sec + cur_dwell
                         dist_km = track[-1]['dist'] / 1000.0
                         
