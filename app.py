@@ -82,7 +82,7 @@ with st.expander("📲 【準備】データの取得ボタンを作成する (�
     このブックマークレットは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**で使用可能です。
     """)
     
-    # JavaScriptコード (引用符対策済み)
+    # JavaScriptコード
     js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt('自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:',text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
     st.markdown("#### 1. 登録手順")
@@ -166,6 +166,10 @@ raw_text = st.text_area(
     placeholder='{"mapinfo": ... } から始まるJSONデータ',
     key="input_json" 
 )
+
+# 注釈と読み込みボタンの追加
+st.caption("☝️ 貼り付け後、**Ctrl+Enter** を押すか、下の **「データを読み込む」** ボタンを押してください。")
+st.button("データを読み込む", use_container_width=True) # このボタンを押すと再実行され、raw_textが確定されます
 
 if raw_text:
     try:
