@@ -75,17 +75,20 @@ st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
 # --- ブックマークレット解説 ---
-with st.expander("📲 【準備】データの取得ボタンを作成する", expanded=False):
+with st.expander("📲 【準備】データの取得ボタンを作成する (使い方)", expanded=False):
     st.markdown("""
-    空想鉄道の作品ページからデータをコピーするには、専用のボタン（ブックマークレット）が必要です。
-    以下の手順でブラウザに登録してください。
+    ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
+    
+    このブックマークレットは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**で使用可能です。
     """)
     
-    # 【修正】ダブルクォーテーションを使わず、すべてシングルクォーテーションで記述
+    # JavaScriptコード (引用符対策済み)
     js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt('自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:',text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
-    st.markdown("#### 手順: 下のボタンを「ブックマークバー」へドラッグ＆ドロップしてください")
+    st.markdown("#### 1. 登録手順")
+    st.markdown("下の赤いボタンを、ブラウザ上部の**ブックマークバーへドラッグ＆ドロップ**してください。")
     
+    # ドラッグ＆ドロップ用ボタン
     components.html(f"""
     <style>
         .bookmarklet-btn {{
@@ -118,7 +121,14 @@ with st.expander("📲 【準備】データの取得ボタンを作成する", 
     
     st.info("※ ブックマークバーが表示されていない場合は、ブラウザの設定（Ctrl+Shift+B など）で表示させてください。")
 
-    with st.expander("うまくいかない場合（手動設定はこちら）"):
+    st.markdown("#### 2. 使い方")
+    st.markdown("""
+    1.  空想鉄道（または空想別館など）の**作品ページ**を開きます。
+    2.  登録した**ブックマーク（ボタン）をクリック**します。
+    3.  「成功」と表示されたら、このシミュレータに戻り、「データの入力」欄に **Ctrl+V (貼り付け)** してください。
+    """)
+
+    with st.expander("うまくいかない場合（手動登録用のコード）"):
         st.markdown("ドラッグ＆ドロップができない場合（スマホなど）は、以下のコードをコピーして手動でブックマークのURLに登録してください。")
         st.code(js_code, language="javascript")
 
@@ -238,6 +248,7 @@ if raw_text:
                         used_lines_list.append(best_line)
                     actual_dist += candidates[best_line]['weight']
                     pts = candidates[best_line]['points']
+                    
                     u_c = station_coords[u]
                     d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                     d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
