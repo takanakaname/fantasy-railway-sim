@@ -77,22 +77,51 @@ st.markdown("空想鉄道シリーズの作品データを解析し、直通運�
 with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
     st.markdown("""
     ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
-    
     このブックマークレットを使用できるのは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**です。
     """)
     
-    st.markdown("#### 1. 登録手順")
-    st.markdown("""
-    1.  まず、**下の黒いボックス内のコードをすべてコピー**してください。
-    2.  ブラウザのブックマークバーなどで「右クリック」→「ページを追加（ブックマークを追加）」を選択します。
-    3.  名前を「**空想データ取得**」など分かりやすい名前にします。
-    4.  URLの欄に、**さきほどコピーしたコードを貼り付け**て保存します。
-    """)
+    # JavaScriptコード
+    bookmarklet_js = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
-    bookmarklet_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
-    st.code(bookmarklet_code, language="javascript")
+    st.markdown("#### 1. 登録手順 (簡単)")
     
-    st.markdown("#### 2. 使い方")
+    # ドラッグ＆ドロップ用のリンクボタンを表示
+    st.markdown(f"""
+    <div style="
+        border: 2px dashed #ccc; 
+        padding: 15px; 
+        border-radius: 10px; 
+        text-align: center; 
+        background-color: #f0f2f6; 
+        margin-bottom: 15px;">
+        <p style="margin-bottom: 10px; font-weight: bold; color: #333;">
+            👇 この下の赤いボタンを、ブラウザのブックマークバーへドラッグ＆ドロップしてください
+        </p>
+        <a href="{bookmarklet_js}" style="
+            display: inline-block;
+            background-color: #FF4B4B;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: grab;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        " onclick="return false;">
+            🚀 空想データ取得
+        </a>
+        <p style="margin-top: 10px; font-size: 0.85em; color: #666;">
+            (PCブラウザ推奨 / スマホの場合は下のコードをコピーして登録してください)
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### 2. 手動で登録する場合 (スマホなど)")
+    st.markdown("ドラッグ＆ドロップができない場合は、以下のコードを全選択してコピーし、ブックマークのURL欄に貼り付けて保存してください。")
+    st.code(bookmarklet_js, language="javascript")
+    
+    st.markdown("#### 3. 使い方")
     st.markdown("""
     1.  空想鉄道（空想別館など）の**作品ページ**を開きます。
     2.  登録した**ブックマークをクリック**します。
@@ -170,20 +199,17 @@ if raw_text:
 
             dest_st = station_selector_widget("到着駅", all_stations_list, line_stations_dict, all_line_names, "dest", -1)
             
-            # 経由地設定
             use_via = st.checkbox("経由駅を指定", value=False)
             via_st = None
-            avoid_revisit = False # 一周計算フラグ
+            avoid_revisit = False
             
             if use_via:
                 via_st = station_selector_widget("経由駅", all_stations_list, line_stations_dict, all_line_names, "via", 0)
-                # 【新機能】 一周計算用のオプション
                 st.caption("👇 環状線を一周する場合や、往復で同じ線路を通りたくない場合にチェック")
                 avoid_revisit = st.checkbox("往路の線路を復路で避ける (一周計算)", value=False)
 
         # --- 経路計算 ---
         try:
-            # 引数に avoid_revisit を追加
             full_route_nodes = core_logic.find_optimal_route(
                 G, dept_st, dest_st, via_st, 
                 avoid_lines, prioritize_lines, 
@@ -342,7 +368,8 @@ if raw_text:
                         dist_km = track[-1]['dist'] / 1000.0
                         
                         results.append({
-                            '出発': s_start, '到着': s_end,
+                            '出発': full_route_nodes[idx_start],
+                            '到着': full_route_nodes[idx_end],
                             '距離(km)': round(dist_km, 2),
                             '走行時間': core_logic.format_time(run_sec),
                             '停車時間': f"{cur_dwell}秒",
