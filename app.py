@@ -6,6 +6,7 @@ from streamlit_folium import st_folium
 import config
 import core_logic
 import os
+import streamlit.components.v1 as components # HTML埋め込み用
 
 # ==========================================
 # ページ設定
@@ -74,54 +75,48 @@ st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
 # --- ブックマークレット解説 ---
-with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
+with st.expander("📲 作品データの自動取得ブックマークレット (使い方)", expanded=False):
     st.markdown("""
     ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
     このブックマークレットを使用できるのは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**です。
     """)
     
-    # JavaScriptコード
-    bookmarklet_js = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
+    st.subheader("【一番かんたん】登録方法")
+    st.markdown("下の緑色のボタンを、ブラウザの**「ブックマークバー」へドラッグ＆ドロップ**してください。")
     
-    st.markdown("#### 1. 登録手順 (簡単)")
+    # ブックマークレットのコード
+    js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
-    # ドラッグ＆ドロップ用のリンクボタンを表示
-    st.markdown(f"""
-    <div style="
-        border: 2px dashed #ccc; 
-        padding: 15px; 
-        border-radius: 10px; 
-        text-align: center; 
-        background-color: #f0f2f6; 
-        margin-bottom: 15px;">
-        <p style="margin-bottom: 10px; font-weight: bold; color: #333;">
-            👇 この下の赤いボタンを、ブラウザのブックマークバーへドラッグ＆ドロップしてください
-        </p>
-        <a href="{bookmarklet_js}" style="
+    # ドラッグ＆ドロップ用のボタン（HTMLコンポーネント）
+    components.html(f"""
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; background-color: #f0f2f6; border-radius: 10px;">
+        <a href="{js_code}" onclick="return false;" style="
             display: inline-block;
-            background-color: #FF4B4B;
+            background-color: #28a745;
             color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
-            text-decoration: none;
+            font-family: sans-serif;
             font-weight: bold;
-            font-size: 16px;
-            cursor: grab;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        " onclick="return false;">
-            🚀 空想データ取得
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 50px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: move; /* ドラッグできることを示すカーソル */
+            border: 2px dashed #fff;
+        ">
+            🔖 空想データ取得 (ここをドラッグ！)
         </a>
-        <p style="margin-top: 10px; font-size: 0.85em; color: #666;">
-            (PCブラウザ推奨 / スマホの場合は下のコードをコピーして登録してください)
+        <p style="margin-top: 8px; font-size: 12px; color: #555;">
+            👆 このボタンをブックマークバーに引っ張ってください
         </p>
     </div>
-    """, unsafe_allow_html=True)
+    """, height=100)
 
-    st.markdown("#### 2. 手動で登録する場合 (スマホなど)")
-    st.markdown("ドラッグ＆ドロップができない場合は、以下のコードを全選択してコピーし、ブックマークのURL欄に貼り付けて保存してください。")
-    st.code(bookmarklet_js, language="javascript")
+    st.markdown("---")
+    st.markdown("#### うまくいかない場合 (手動登録)")
+    st.text("ドラッグ＆ドロップができない場合は、以下のコードをコピーして手動でブックマークのURLに登録してください。")
+    st.code(js_code, language="javascript")
     
-    st.markdown("#### 3. 使い方")
+    st.markdown("#### 使い方")
     st.markdown("""
     1.  空想鉄道（空想別館など）の**作品ページ**を開きます。
     2.  登録した**ブックマークをクリック**します。
@@ -218,8 +213,6 @@ if raw_text:
             
             if not full_route_nodes:
                 st.error("経路が見つかりません。")
-                if dept_st == dest_st and not via_st:
-                    st.warning("※出発と到着が同じ駅の場合、必ず「経由駅」を指定してください。")
                 st.stop()
             
             actual_dist = 0
@@ -368,8 +361,7 @@ if raw_text:
                         dist_km = track[-1]['dist'] / 1000.0
                         
                         results.append({
-                            '出発': full_route_nodes[idx_start],
-                            '到着': full_route_nodes[idx_end],
+                            '出発': s_start, '到着': s_end,
                             '距離(km)': round(dist_km, 2),
                             '走行時間': core_logic.format_time(run_sec),
                             '停車時間': f"{cur_dwell}秒",
