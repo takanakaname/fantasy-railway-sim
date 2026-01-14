@@ -74,15 +74,15 @@ with st.sidebar:
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 (簡易版: ドラッグ＆ドロップ) ---
+# --- ブックマークレット解説 ---
 with st.expander("📲 【準備】データの取得ボタンを作成する", expanded=False):
     st.markdown("""
     空想鉄道の作品ページからデータをコピーするには、専用のボタン（ブックマークレット）が必要です。
     以下の手順でブラウザに登録してください。
     """)
     
-    # 修正済みブックマークレットコード
-    js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
+    # 【修正】ダブルクォーテーションを使わず、すべてシングルクォーテーションで記述
+    js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt('自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:',text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
     st.markdown("#### 手順: 下のボタンを「ブックマークバー」へドラッグ＆ドロップしてください")
     
@@ -193,10 +193,9 @@ if raw_text:
 
             dest_st = station_selector_widget("到着駅", all_stations_list, line_stations_dict, all_line_names, "dest", -1)
             
-            # 経由地設定
             use_via = st.checkbox("経由駅を指定", value=False)
             via_st = None
-            avoid_revisit = False # 一周計算フラグ
+            avoid_revisit = False
             
             if use_via:
                 via_st = station_selector_widget("経由駅", all_stations_list, line_stations_dict, all_line_names, "via", 0)
@@ -239,7 +238,6 @@ if raw_text:
                         used_lines_list.append(best_line)
                     actual_dist += candidates[best_line]['weight']
                     pts = candidates[best_line]['points']
-                    
                     u_c = station_coords[u]
                     d_s = core_logic.hubeny_distance(pts[0][0], pts[0][1], u_c[0], u_c[1])
                     d_e = core_logic.hubeny_distance(pts[-1][0], pts[-1][1], u_c[0], u_c[1])
