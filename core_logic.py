@@ -3,7 +3,7 @@ import math
 import numpy as np
 import networkx as nx
 import folium
-import streamlit as st # キャッシュ機能のために必要
+import streamlit as st
 from config import SAME_STATION_THRESHOLD
 
 # ==========================================
@@ -74,7 +74,6 @@ def build_network(map_data):
     all_line_names = []
     line_stations_dict = {}
 
-    # 駅ID解決
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue 
         line_name = line.get('name', f'路線{line_idx}')
@@ -118,7 +117,6 @@ def build_network(map_data):
                 
                 station_id_map[(line_idx, pt_idx)] = unique_id
 
-    # グラフエッジ構築
     for line_idx, line in enumerate(lines):
         if line.get('type') == 1: continue
         line_name = line.get('name', '不明')
@@ -154,9 +152,15 @@ def build_network(map_data):
 
     return G, edge_details, station_coords, all_line_names, line_stations_dict
 
-def find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_lines):
-    """優先・回避路線を考慮して最短経路を探索する"""
+def find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_lines, avoid_revisit=False):
+    """
+    経路探索を行う関数
+    avoid_revisit=Trueの場合、往路(Start->Via)で使用した区間に対し、復路(Via->End)で超高コストを課すことで
+    「来た道を戻る」ルートを回避し、環状線の一周などを実現する。
+    """
     G_calc = G.copy()
+    
+    # 1. ユーザー指定の優先・回避コストを適用
     for u, v, k, d in G_calc.edges(keys=True, data=True):
         l_name = d.get('line_name', '')
         base_weight = d['weight']
@@ -169,11 +173,29 @@ def find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_line
     
     try:
         if via_st:
+            # 往路: 出発 -> 経由
             p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
+            
+            if avoid_revisit:
+                # 復路計算の前に、往路で使った区間のコストを無限大にする
+                for i in range(len(p1) - 1):
+                    u_node = p1[i]
+                    v_node = p1[i+1]
+                    
+                    # 無向グラフ(MultiGraph)なので、u-v間のエッジ全てにペナルティを与える
+                    if G_calc.has_edge(u_node, v_node):
+                        for key in G_calc[u_node][v_node]:
+                            # 完全に切断すると詰む可能性があるので、超巨大なコストにする
+                            G_calc[u_node][v_node][key]['weight'] *= 10000.0
+            
+            # 復路: 経由 -> 到着
             p2 = nx.shortest_path(G_calc, source=via_st, target=dest_st, weight='weight')
+            
             return p1 + p2[1:]
         else:
+            # 直行
             return nx.shortest_path(G_calc, source=dept_st, target=dest_st, weight='weight')
+            
     except nx.NetworkXNoPath:
         return None
 
