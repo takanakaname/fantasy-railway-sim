@@ -1,9 +1,9 @@
 # app.py
 import streamlit as st
-import streamlit.components.v1 as components  # HTML埋め込み用に追加
 import json
 import pandas as pd
 from streamlit_folium import st_folium
+import streamlit.components.v1 as components # 追加: HTML埋め込み用
 import config
 import core_logic
 import os
@@ -74,77 +74,56 @@ with st.sidebar:
 st.title("架空鉄道 所要時間シミュレータ")
 st.markdown("空想鉄道シリーズの作品データを解析し、直通運転や所要時間シミュレーションを行います。")
 
-# --- ブックマークレット解説 ---
-with st.expander("作品データの自動取得ブックマークレット (使い方)", expanded=False):
+# --- ブックマークレット解説 (簡易版: ドラッグ＆ドロップ) ---
+with st.expander("📲 【準備】データの取得ボタンを作成する", expanded=False):
     st.markdown("""
-    ブラウザのブックマーク機能を利用して、空想鉄道の作品ページからデータを簡単にコピーできます。
-    このブックマークレットを使用できるのは**「空想鉄道」「空想旧鉄」「空想地図」「空想別館」**です。
+    空想鉄道の作品ページからデータをコピーするには、専用のボタン（ブックマークレット）が必要です。
+    以下の手順でブラウザに登録してください。
     """)
     
-    # JavaScriptコード
+    # ブックマークレットのコード
     js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
-
-    st.markdown("#### 1. 登録手順 (ドラッグ＆ドロップ)")
-    st.info("👇 下の青いボタンを、ブラウザの**「ブックマークバー」**にドラッグ＆ドロップしてください。")
     
-    # HTML埋め込みによるドラッグ可能なリンクの生成
+    # HTMLコンポーネントを使ってドラッグ可能なリンクを作成
+    # target="_self" などを指定せず、単純なアンカータグにする
+    st.markdown("#### 手順: 下のボタンを「ブックマークバー」へドラッグ＆ドロップしてください")
+    
     components.html(f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
     <style>
-        .bookmarklet-container {{
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 10px;
-            font-family: sans-serif;
-        }}
         .bookmarklet-btn {{
             display: inline-block;
-            background-color: #007bff;
+            background-color: #ff4b4b;
             color: white;
-            padding: 12px 24px;
+            padding: 10px 20px;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 5px;
+            font-family: sans-serif;
             font-weight: bold;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            cursor: grab;
-            transition: background-color 0.2s;
+            cursor: move; /* ドラッグできることを示すカーソル */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }}
         .bookmarklet-btn:hover {{
-            background-color: #0056b3;
+            background-color: #ff2b2b;
         }}
-        .bookmarklet-btn:active {{
-            cursor: grabbing;
+        .guide {{
+            font-family: sans-serif;
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 8px;
         }}
     </style>
-    </head>
-    <body>
-        <div class="bookmarklet-container">
-            <a href="{js_code}" class="bookmarklet-btn" title="ブックマークバーにドラッグ！">
-                🚆 空想データ取得
-            </a>
-        </div>
-    </body>
-    </html>
-    """, height=80)
-
-    st.markdown("""
-    ※ ブックマークバーが表示されていない場合は、ブラウザの設定で表示（Ctrl+Shift+B など）してください。
-    """)
-
-    st.markdown("---")
-    st.markdown("#### (うまくいかない場合) 手動登録")
-    st.markdown("ドラッグ＆ドロップができない場合は、以下のコードをコピーして手動でブックマークを作成してください。")
-    st.code(js_code, language="javascript")
+    <div style="text-align: center; padding: 10px; border: 1px dashed #ccc; border-radius: 10px; background-color: #f9f9f9;">
+        <div class="guide">👇 このボタンをつかんで、ブラウザ上部のブックマークバーに放り込んでください</div>
+        <a href="{js_code}" class="bookmarklet-btn" title="これをブックマークバーにドラッグ！">空想データ取得</a>
+    </div>
+    """, height=100)
     
-    st.markdown("#### 2. 使い方")
-    st.markdown("""
-    1.  空想鉄道（空想別館など）の**作品ページ**を開きます。
-    2.  登録した**ブックマークをクリック**します。
-    3.  画面に「成功」と表示されたら、このシミュレータの「データの入力」欄に戻り、**Ctrl+V (貼り付け)** してください。
-    """)
+    st.info("※ ブックマークバーが表示されていない場合は、ブラウザの設定（Ctrl+Shift+B など）で表示させてください。")
+
+    # 手動設定（予備）
+    with st.expander("うまくいかない場合（手動設定はこちら）"):
+        st.markdown("ドラッグ＆ドロップができない場合（スマホなど）は、以下のコードをコピーして手動でブックマークのURLに登録してください。")
+        st.code(js_code, language="javascript")
 
 st.divider()
 
