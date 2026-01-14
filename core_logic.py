@@ -1,4 +1,3 @@
-# core_logic.py
 import math
 import numpy as np
 import networkx as nx
@@ -155,12 +154,11 @@ def build_network(map_data):
 def find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_lines, avoid_revisit=False):
     """
     経路探索を行う関数
-    avoid_revisit=Trueの場合、往路(Start->Via)で使用した区間に対し、復路(Via->End)で超高コストを課すことで
-    「来た道を戻る」ルートを回避し、環状線の一周などを実現する。
+    avoid_revisit=Trueの場合、往路(Start->Via)で使用した区間に対し、復路(Via->End)で超高コストを課す
     """
     G_calc = G.copy()
     
-    # 1. ユーザー指定の優先・回避コストを適用
+    # コスト調整
     for u, v, k, d in G_calc.edges(keys=True, data=True):
         l_name = d.get('line_name', '')
         base_weight = d['weight']
@@ -173,24 +171,20 @@ def find_optimal_route(G, dept_st, dest_st, via_st, avoid_lines, prioritize_line
     
     try:
         if via_st:
-            # 往路: 出発 -> 経由
+            # 往路
             p1 = nx.shortest_path(G_calc, source=dept_st, target=via_st, weight='weight')
             
             if avoid_revisit:
-                # 復路計算の前に、往路で使った区間のコストを無限大にする
+                # 復路計算前に往路のコストを上げる
                 for i in range(len(p1) - 1):
                     u_node = p1[i]
                     v_node = p1[i+1]
-                    
-                    # 無向グラフ(MultiGraph)なので、u-v間のエッジ全てにペナルティを与える
                     if G_calc.has_edge(u_node, v_node):
                         for key in G_calc[u_node][v_node]:
-                            # 完全に切断すると詰む可能性があるので、超巨大なコストにする
                             G_calc[u_node][v_node][key]['weight'] *= 10000.0
             
-            # 復路: 経由 -> 到着
+            # 復路
             p2 = nx.shortest_path(G_calc, source=via_st, target=dest_st, weight='weight')
-            
             return p1 + p2[1:]
         else:
             # 直行
