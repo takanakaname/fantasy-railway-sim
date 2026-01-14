@@ -3,7 +3,7 @@ import streamlit as st
 import json
 import pandas as pd
 from streamlit_folium import st_folium
-import streamlit.components.v1 as components # 追加: HTML埋め込み用
+import streamlit.components.v1 as components
 import config
 import core_logic
 import os
@@ -81,11 +81,9 @@ with st.expander("📲 【準備】データの取得ボタンを作成する", 
     以下の手順でブラウザに登録してください。
     """)
     
-    # ブックマークレットのコード
+    # 修正済みブックマークレットコード
     js_code = r"""javascript:(function(){const match=location.pathname.match(/\/([^\/]+)\.html/);if(!match){alert('エラー：作品IDが見つかりません。\n作品ページ(ID.html)で実行してください。');return;}const mapId=match[1];const formData=new FormData();formData.append('exec','selectIndex');formData.append('mapno',mapId);formData.append('time',Date.now());fetch('/_Ajax.php',{method:'POST',body:formData}).then(response=>response.text()).then(text=>{if(text.length<50){alert('データ取得に失敗した可能性があります。\n中身: '+text);}else{navigator.clipboard.writeText(text).then(()=>{alert('【成功】作品データをコピーしました！\nID: '+mapId+'\n文字数: '+text.length+'\n\nシミュレータに戻って「Ctrl+V」で貼り付けてください。');}).catch(err=>{window.prompt("自動コピーに失敗しました。Ctrl+Cで以下をコピーしてください:",text);});}}).catch(err=>{alert('通信エラーが発生しました: '+err);});})();"""
     
-    # HTMLコンポーネントを使ってドラッグ可能なリンクを作成
-    # target="_self" などを指定せず、単純なアンカータグにする
     st.markdown("#### 手順: 下のボタンを「ブックマークバー」へドラッグ＆ドロップしてください")
     
     components.html(f"""
@@ -99,7 +97,7 @@ with st.expander("📲 【準備】データの取得ボタンを作成する", 
             border-radius: 5px;
             font-family: sans-serif;
             font-weight: bold;
-            cursor: move; /* ドラッグできることを示すカーソル */
+            cursor: move;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }}
         .bookmarklet-btn:hover {{
@@ -120,7 +118,6 @@ with st.expander("📲 【準備】データの取得ボタンを作成する", 
     
     st.info("※ ブックマークバーが表示されていない場合は、ブラウザの設定（Ctrl+Shift+B など）で表示させてください。")
 
-    # 手動設定（予備）
     with st.expander("うまくいかない場合（手動設定はこちら）"):
         st.markdown("ドラッグ＆ドロップができない場合（スマホなど）は、以下のコードをコピーして手動でブックマークのURLに登録してください。")
         st.code(js_code, language="javascript")
